@@ -1,0 +1,305 @@
+---
+description: Critical rule - never hide compiler warnings, linter errors, or security issues
+globs:
+  - "**/*.sol"
+alwaysApply: true
+---
+
+# No Hiding Rule
+
+## Critical Rule
+
+**NEVER hide compiler warnings, linter errors, or security issues.**
+
+All compiler warnings, linter errors, and security issues **MUST** be fully resolved. Never suppress, ignore, or bypass them.
+
+## What This Means
+
+### ❌ NEVER Do This
+
+```solidity
+// ❌ BAD - Suppressing compiler warnings
+pragma solidity ^0.8.20;
+// solhint-disable-next-line no-unused-vars
+function unusedFunction() external {
+    // ...
+}
+
+// ❌ BAD - Ignoring linter warnings
+function transfer(address to, uint256 amount) external {
+    // solhint-disable-next-line
+    balances[to] += amount;  // Ignoring warning
+}
+
+// ❌ BAD - Using unchecked blocks to hide overflow checks
+function unsafeIncrement(uint256 x) external pure returns (uint256) {
+    unchecked {
+        return x + 1;  // Hiding potential overflow
+    }
+}
+
+// ❌ BAD - Commenting out problematic code
+// function brokenFunction() external {
+//     return undefinedVariable;  // Has errors but commented out
+// }
+
+// ❌ BAD - Using assembly to bypass checks
+function unsafeOperation() external {
+    assembly {
+        // Bypassing Solidity safety checks
+    }
+}
+```
+
+### ✅ ALWAYS Do This
+
+```solidity
+// ✅ GOOD - Fix the actual issue
+function transfer(address to, uint256 amount) external {
+    require(to != address(0), "Invalid recipient");
+    require(amount > 0, "Amount must be positive");
+    balances[msg.sender] -= amount;
+    balances[to] += amount;
+}
+
+// ✅ GOOD - Remove unused code
+// Just delete unused functions/variables
+
+// ✅ GOOD - Fix overflow issues properly
+function safeIncrement(uint256 x) external pure returns (uint256) {
+    // Solidity 0.8.0+ automatically checks overflow
+    return x + 1;
+}
+
+// ✅ GOOD - Use unchecked only when overflow is impossible
+function incrementInLoop(uint256 length) external pure returns (uint256) {
+    uint256 sum = 0;
+    for (uint256 i = 0; i < length;) {
+        sum += i;
+        unchecked {
+            i++;  // Safe: i < length, so i++ cannot overflow
+        }
+    }
+    return sum;
+}
+
+// ✅ GOOD - Fix broken code immediately
+function fixedFunction() external pure returns (uint256) {
+    return 100;  // Fixed implementation
+}
+```
+
+## Tools We Use
+
+### 1. Solidity Compiler
+
+**Configuration:** `foundry.toml`
+
+```toml
+[profile.default]
+solc = "0.8.20"
+optimizer = true
+optimizer_runs = 200
+via_ir = false
+
+# Enable all warnings
+# Warnings should be treated as errors in CI
+```
+
+**Never ignore warnings:**
+
+```solidity
+// ❌ BAD
+pragma solidity ^0.8.20;
+// pragma abicoder v2;  // Warning ignored
+
+// ✅ GOOD - Fix the warning
+pragma solidity ^0.8.20;
+pragma abicoder v2;  // Explicitly enable if needed
+```
+
+### 2. Solhint / Slither
+
+**Configuration:** `.solhint.json`
+
+```json
+{
+  "extends": "solhint:recommended",
+  "rules": {
+    "no-unused-vars": "error",
+    "no-console": "error",
+    "compiler-version": "error"
+  }
+}
+```
+
+**Never suppress linter errors:**
+
+```solidity
+// ❌ BAD
+// solhint-disable-next-line no-unused-vars
+function unusedFunction() external {
+    // ...
+}
+
+// ✅ GOOD - Remove unused code or use it
+function usedFunction() external {
+    // Actually use the function
+}
+```
+
+### 3. Foundry
+
+**Never skip tests or ignore failures:**
+
+```bash
+# ❌ BAD - Ignoring test failures
+forge test || true
+
+# ✅ GOOD - Fix failing tests
+forge test  # Must pass
+```
+
+## Common Scenarios
+
+### Unused Variables
+
+```solidity
+// ❌ BAD
+function process(uint256 amount) external {
+    uint256 unused = 100;  // Unused variable
+    // ...
+}
+
+// ✅ GOOD - Remove if unused, or use it
+function process(uint256 amount) external {
+    uint256 threshold = 100;  // Actually use it
+    require(amount > threshold, "Amount too low");
+}
+
+// ✅ GOOD - Use underscore for intentionally unused
+function process(uint256 amount) external {
+    uint256 _unused = 100;  // Intentionally unused
+    // ...
+}
+```
+
+### Compiler Warnings
+
+```solidity
+// ❌ BAD - Suppressing warning
+pragma solidity ^0.8.20;
+// pragma experimental ABIEncoderV2;  // Warning suppressed
+
+// ✅ GOOD - Fix the warning
+pragma solidity ^0.8.20;
+// Use ABIEncoderV2 only if needed, otherwise remove
+```
+
+### Type Errors
+
+```solidity
+// ❌ BAD - Using assembly to bypass type checking
+function unsafeCast() external {
+    assembly {
+        let x := 0x1234
+        // Bypassing type checks
+    }
+}
+
+// ✅ GOOD - Use proper types
+function safeCast() external pure returns (uint256) {
+    return uint256(0x1234);
+}
+```
+
+### Security Issues
+
+```solidity
+// ❌ BAD - Ignoring security warnings
+function withdraw() external {
+    // solhint-disable-next-line reentrancy
+    (bool success, ) = msg.sender.call{value: balances[msg.sender]}("");
+    balances[msg.sender] = 0;
+}
+
+// ✅ GOOD - Fix security issue
+function withdraw() external nonReentrant {
+    uint256 amount = balances[msg.sender];
+    balances[msg.sender] = 0;  // Effects first
+    (bool success, ) = msg.sender.call{value: amount}("");  // Interactions last
+    require(success, "Transfer failed");
+}
+```
+
+## Pre-commit Hooks
+
+Ensure pre-commit hooks run and **fail** if there are errors:
+
+```yaml
+# .pre-commit-config.yaml
+repos:
+  - repo: local
+    hooks:
+      - id: forge-fmt
+        name: forge fmt
+        entry: forge fmt --check
+        language: system
+        pass_filenames: false
+        always_run: true
+        fail_fast: true
+      
+      - id: forge-build
+        name: forge build
+        entry: forge build
+        language: system
+        pass_filenames: false
+        always_run: true
+        fail_fast: true
+```
+
+## CI/CD Integration
+
+**Never allow errors in CI:**
+
+```yaml
+# .github/workflows/ci.yml
+- name: Build contracts
+  run: forge build
+  # Should fail if there are warnings/errors
+
+- name: Run tests
+  run: forge test
+  # Should fail if tests don't pass
+
+- name: Check formatting
+  run: forge fmt --check
+  # Should fail if code is not formatted
+```
+
+## Security Considerations
+
+### Never Suppress Security Warnings
+
+```solidity
+// ❌ BAD - Suppressing security warning
+// solhint-disable-next-line reentrancy
+function withdraw() external {
+    // Vulnerable code
+}
+
+// ✅ GOOD - Fix security issue
+function withdraw() external nonReentrant {
+    // Secure implementation
+}
+```
+
+## Remember
+
+- **Fix, Don't Suppress** - Always fix the underlying issue
+- **No Suppression Comments** - Never use solhint-disable or similar
+- **Compiler Warnings** - Treat warnings as errors
+- **Security First** - Never suppress security warnings
+- **Pre-commit** - Let hooks catch errors before commit
+- **CI/CD** - Fail builds on warnings/errors
+- **Code Quality** - Maintain high standards always

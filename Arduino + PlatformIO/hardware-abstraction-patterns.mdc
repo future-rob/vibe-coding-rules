@@ -1,0 +1,783 @@
+---
+description: Hardware abstraction layer (HAL) patterns and best practices for embedded systems
+globs:
+  - "**/src/hal/**"
+  - "**/lib/**/hal/**"
+  - "**/*_hal.*"
+  - "**/*_driver.*"
+  - "**/hardware/**"
+alwaysApply: true
+---
+
+# Hardware Abstraction Patterns
+
+## Overview
+
+Hardware abstraction is crucial for creating portable, testable, and maintainable embedded code. This document outlines patterns for abstracting hardware dependencies, allowing code to work across different microcontroller platforms and simplifying unit testing.
+
+## Core Principles
+
+1. **Separation of Concerns**: Hardware-specific code isolated from business logic
+2. **Compile-Time Polymorphism**: Use templates over virtual functions to avoid overhead
+3. **Zero-Cost Abstractions**: Abstractions should compile to the same code as direct hardware access
+4. **Testability**: Hardware interfaces should be mockable for unit testing
+5. **Type Safety**: Use strong types to prevent pin misconfigurations
+
+## Pin Management Pattern
+
+### Compile-Time Pin Configuration
+
+```cpp
+// include/hardware/pin_config.h
+#pragma once
+#include <stdint.h>
+
+// Pin configuration using templates for compile-time validation
+template<uint8_t PIN>
+struct Pin {
+    static_assert(PIN < NUM_DIGITAL_PINS, "Invalid pin number");
+    static constexpr uint8_t number = PIN;
+};
+
+// Named pin aliases for readability
+namespace Pins {
+    using StatusLED = Pin<LED_BUILTIN>;
+    using Button1 = Pin<2>;
+    using MotorPWM = Pin<9>;
+    
+    // I2C pins (platform-specific)
+    #if defined(ESP32)
+        using SDA = Pin<21>;
+        using SCL = Pin<22>;
+    #elif defined(ARDUINO_AVR_UNO)
+        using SDA = Pin<A4>;
+        using SCL = Pin<A5>;
+    #endif
+    
+    // SPI pins
+    using MOSI = Pin<MOSI>;
+    using MISO = Pin<MISO>;
+    using SCK = Pin<SCK>;
+    using CS_SENSOR = Pin<10>;
+}
+
+// Pin mode traits
+enum class PinMode : uint8_t {
+    Input = INPUT,
+    Output = OUTPUT,
+    InputPullup = INPUT_PULLUP,
+    #ifdef ESP32
+    InputPulldown = INPUT_PULLDOWN,
+    #endif
+};
+
+// Pin capabilities checking
+template<uint8_t PIN>
+struct PinTraits {
+    static constexpr bool has_pwm = 
+        #ifdef ESP32
+        true;  // All ESP32 pins support PWM
+        #else
+        (PIN == 3 || PIN == 5 || PIN == 6 || PIN == 9 || PIN == 10 || PIN == 11);
+        #endif
+    
+    static constexpr bool has_adc = 
+        #ifdef ESP32
+        (PIN >= 32 && PIN <= 39);  // ESP32 ADC pins
+        #else
+        (PIN >= A0 && PIN <= A5);   // Arduino analog pins
+        #endif
+};
+```
+
+### GPIO Abstraction
+
+```cpp
+// include/hal/gpio.h
+#pragma once
+#include "hardware/pin_config.h"
+
+template<typename PinType>
+class DigitalPin {
+private:
+    static constexpr uint8_t pin = PinType::number;
+    
+public:
+    static void init(PinMode mode) {
+        pinMode(pin, static_cast<uint8_t>(mode));
+    }
+    
+    static void write(bool value) {
+        digitalWrite(pin, value ? HIGH : LOW);
+    }
+    
+    static bool read() {
+        return digitalRead(pin) == HIGH;
+    }
+    
+    static void toggle() {
+        write(!read());
+    }
+    
+    // PWM support (compile-time check)
+    template<typename T = PinType>
+    static typename std::enable_if<PinTraits<T::number>::has_pwm, void>::type
+    writePWM(uint8_t value) {
+        analogWrite(pin, value);
+    }
+};
+
+// Usage example
+using LED = DigitalPin<Pins::StatusLED>;
+using Button = DigitalPin<Pins::Button1>;
+
+void setup() {
+    LED::init(PinMode::Output);
+    Button::init(PinMode::InputPullup);
+}
+
+void loop() {
+    if (!Button::read()) {  // Active low button
+        LED::toggle();
+        delay(200);  // Debounce
+    }
+}
+```
+
+## Peripheral Abstraction Pattern
+
+### SPI Hardware Abstraction
+
+```cpp
+// include/hal/spi_hal.h
+#pragma once
+#include <SPI.h>
+
+// SPI configuration
+struct SPIConfig {
+    uint32_t frequency;
+    uint8_t mode;
+    uint8_t bitOrder;
+    
+    constexpr SPIConfig(
+        uint32_t freq = 1000000,
+        uint8_t m = SPI_MODE0,
+        uint8_t order = MSBFIRST
+    ) : frequency(freq), mode(m), bitOrder(order) {}
+};
+
+// Platform-independent SPI abstraction
+template<typename ChipSelectPin>
+class SPIDevice {
+private:
+    static SPISettings settings;
+    
+public:
+    static void init(const SPIConfig& config) {
+        ChipSelectPin::init(PinMode::Output);
+        ChipSelectPin::write(true);  // Deselect
+        
+        settings = SPISettings(config.frequency, config.bitOrder, config.mode);
+        SPI.begin();
+    }
+    
+    static uint8_t transfer(uint8_t data) {
+        return SPI.transfer(data);
+    }
+    
+    static void transfer(uint8_t* buffer, size_t length) {
+        SPI.transfer(buffer, length);
+    }
+    
+    // RAII-style transaction
+    class Transaction {
+    public:
+        Transaction() {
+            SPI.beginTransaction(settings);
+            ChipSelectPin::write(false);  // Select
+        }
+        
+        ~Transaction() {
+            ChipSelectPin::write(true);   // Deselect
+            SPI.endTransaction();
+        }
+        
+        // Prevent copying
+        Transaction(const Transaction&) = delete;
+        Transaction& operator=(const Transaction&) = delete;
+    };
+    
+    template<typename Func>
+    static auto transaction(Func func) -> decltype(func()) {
+        Transaction t;
+        return func();
+    }
+};
+
+// Define static member
+template<typename CS>
+SPISettings SPIDevice<CS>::settings;
+
+// Usage example
+using SensorSPI = SPIDevice<DigitalPin<Pins::CS_SENSOR>>;
+
+void readSensor() {
+    SensorSPI::transaction([]() {
+        uint8_t cmd = 0x01;
+        SensorSPI::transfer(&cmd, 1);
+        
+        uint8_t data[4];
+        SensorSPI::transfer(data, 4);
+        // Process data...
+    });
+}
+```
+
+### I2C Hardware Abstraction
+
+```cpp
+// include/hal/i2c_hal.h
+#pragma once
+#include <Wire.h>
+
+// I2C abstraction with error handling
+class I2CDevice {
+private:
+    uint8_t address;
+    TwoWire* wire;
+    
+public:
+    enum class Error : uint8_t {
+        None = 0,
+        AddressNACK = 1,
+        DataNACK = 2,
+        Other = 3,
+        Timeout = 4
+    };
+    
+    I2CDevice(uint8_t addr, TwoWire* w = &Wire) 
+        : address(addr), wire(w) {}
+    
+    void begin(uint32_t frequency = 100000) {
+        wire->begin();
+        wire->setClock(frequency);
+    }
+    
+    Error writeRegister(uint8_t reg, uint8_t value) {
+        wire->beginTransmission(address);
+        wire->write(reg);
+        wire->write(value);
+        return static_cast<Error>(wire->endTransmission());
+    }
+    
+    Error writeRegister(uint8_t reg, const uint8_t* data, size_t length) {
+        wire->beginTransmission(address);
+        wire->write(reg);
+        wire->write(data, length);
+        return static_cast<Error>(wire->endTransmission());
+    }
+    
+    Error readRegister(uint8_t reg, uint8_t* data, size_t length) {
+        // Write register address
+        wire->beginTransmission(address);
+        wire->write(reg);
+        Error err = static_cast<Error>(wire->endTransmission(false));
+        if (err != Error::None) return err;
+        
+        // Read data
+        size_t received = wire->requestFrom(address, static_cast<uint8_t>(length));
+        if (received != length) return Error::Timeout;
+        
+        for (size_t i = 0; i < length; i++) {
+            data[i] = wire->read();
+        }
+        
+        return Error::None;
+    }
+    
+    // Convenience method for single byte read
+    Error readRegister(uint8_t reg, uint8_t& value) {
+        return readRegister(reg, &value, 1);
+    }
+};
+
+// Usage example
+class BME280Sensor {
+private:
+    I2CDevice device;
+    static constexpr uint8_t CHIP_ID_REG = 0xD0;
+    static constexpr uint8_t EXPECTED_CHIP_ID = 0x60;
+    
+public:
+    BME280Sensor() : device(0x76) {}  // Default I2C address
+    
+    bool init() {
+        device.begin();
+        
+        uint8_t chipId;
+        if (device.readRegister(CHIP_ID_REG, chipId) != I2CDevice::Error::None) {
+            return false;
+        }
+        
+        return chipId == EXPECTED_CHIP_ID;
+    }
+    
+    float readTemperature() {
+        // Implementation...
+        return 0.0f;
+    }
+};
+```
+
+## UART Hardware Abstraction
+
+```cpp
+// include/hal/uart_hal.h
+#pragma once
+#include <HardwareSerial.h>
+
+template<typename SerialType = HardwareSerial>
+class UARTDevice {
+private:
+    SerialType* serial;
+    uint32_t baudRate;
+    uint32_t timeout;
+    
+public:
+    UARTDevice(SerialType* s, uint32_t baud = 115200)
+        : serial(s), baudRate(baud), timeout(1000) {}
+    
+    void begin() {
+        serial->begin(baudRate);
+        serial->setTimeout(timeout);
+    }
+    
+    void end() {
+        serial->end();
+    }
+    
+    void setBaudRate(uint32_t baud) {
+        baudRate = baud;
+        serial->begin(baudRate);
+    }
+    
+    void setTimeout(uint32_t ms) {
+        timeout = ms;
+        serial->setTimeout(timeout);
+    }
+    
+    size_t write(uint8_t data) {
+        return serial->write(data);
+    }
+    
+    size_t write(const uint8_t* data, size_t length) {
+        return serial->write(data, length);
+    }
+    
+    size_t print(const char* str) {
+        return serial->print(str);
+    }
+    
+    size_t println(const char* str) {
+        return serial->println(str);
+    }
+    
+    int available() {
+        return serial->available();
+    }
+    
+    int read() {
+        return serial->read();
+    }
+    
+    size_t readBytes(uint8_t* buffer, size_t length) {
+        return serial->readBytes(buffer, length);
+    }
+    
+    void flush() {
+        serial->flush();
+    }
+    
+    // Template method for sending structured data
+    template<typename T>
+    bool sendPacket(const T& data) {
+        uint8_t header[] = {0xAA, 0x55, sizeof(T)};
+        size_t written = write(header, sizeof(header));
+        written += write(reinterpret_cast<const uint8_t*>(&data), sizeof(T));
+        
+        // Simple checksum
+        uint8_t checksum = 0;
+        const uint8_t* bytes = reinterpret_cast<const uint8_t*>(&data);
+        for (size_t i = 0; i < sizeof(T); i++) {
+            checksum ^= bytes[i];
+        }
+        written += write(checksum);
+        
+        return written == (sizeof(header) + sizeof(T) + 1);
+    }
+};
+
+// Platform-specific serial port selection
+#ifdef ESP32
+    using DebugSerial = UARTDevice<HardwareSerial>;
+    using GPSSerial = UARTDevice<HardwareSerial>;
+#else
+    using DebugSerial = UARTDevice<HardwareSerial>;
+    #ifdef HAVE_HWSERIAL1
+        using GPSSerial = UARTDevice<HardwareSerial>;
+    #else
+        #include <SoftwareSerial.h>
+        using GPSSerial = UARTDevice<SoftwareSerial>;
+    #endif
+#endif
+```
+
+## Timer Hardware Abstraction
+
+```cpp
+// include/hal/timer_hal.h
+#pragma once
+#include <functional>
+
+// Timer abstraction for periodic tasks
+class Timer {
+public:
+    using Callback = std::function<void()>;
+    
+private:
+    uint32_t interval;
+    uint32_t lastTrigger;
+    Callback callback;
+    bool enabled;
+    bool oneShot;
+    
+public:
+    Timer(uint32_t intervalMs, Callback cb, bool once = false)
+        : interval(intervalMs), lastTrigger(0), 
+          callback(cb), enabled(false), oneShot(once) {}
+    
+    void start() {
+        lastTrigger = millis();
+        enabled = true;
+    }
+    
+    void stop() {
+        enabled = false;
+    }
+    
+    void reset() {
+        lastTrigger = millis();
+    }
+    
+    void setInterval(uint32_t ms) {
+        interval = ms;
+    }
+    
+    void update() {
+        if (!enabled) return;
+        
+        uint32_t now = millis();
+        if (now - lastTrigger >= interval) {
+            lastTrigger = now;
+            if (callback) callback();
+            
+            if (oneShot) {
+                enabled = false;
+            }
+        }
+    }
+    
+    bool isEnabled() const { return enabled; }
+};
+
+// Hardware timer abstraction (platform-specific)
+#ifdef ESP32
+    #include <esp_timer.h>
+    
+    class HardwareTimer {
+    private:
+        esp_timer_handle_t handle;
+        std::function<void()> callback;
+        
+        static void IRAM_ATTR timerCallback(void* arg) {
+            HardwareTimer* timer = static_cast<HardwareTimer*>(arg);
+            if (timer->callback) timer->callback();
+        }
+        
+    public:
+        HardwareTimer() : handle(nullptr) {}
+        
+        ~HardwareTimer() {
+            if (handle) {
+                esp_timer_delete(handle);
+            }
+        }
+        
+        bool init(uint32_t periodUs, std::function<void()> cb, bool periodic = true) {
+            callback = cb;
+            
+            esp_timer_create_args_t args = {
+                .callback = timerCallback,
+                .arg = this,
+                .dispatch_method = ESP_TIMER_TASK,
+                .name = "hardware_timer"
+            };
+            
+            if (esp_timer_create(&args, &handle) != ESP_OK) {
+                return false;
+            }
+            
+            if (periodic) {
+                return esp_timer_start_periodic(handle, periodUs) == ESP_OK;
+            } else {
+                return esp_timer_start_once(handle, periodUs) == ESP_OK;
+            }
+        }
+        
+        void stop() {
+            if (handle) {
+                esp_timer_stop(handle);
+            }
+        }
+    };
+#endif
+```
+
+## ADC Hardware Abstraction
+
+```cpp
+// include/hal/adc_hal.h
+#pragma once
+
+template<uint8_t PIN>
+class AnalogInput {
+    static_assert(PinTraits<PIN>::has_adc, "Pin does not support ADC");
+    
+private:
+    static constexpr uint8_t pin = PIN;
+    static constexpr float vRef = 
+        #ifdef ESP32
+        3.3f;
+        #else
+        5.0f;
+        #endif
+    
+    static constexpr uint16_t maxValue = 
+        #ifdef ESP32
+        4095;  // 12-bit ADC
+        #else
+        1023;  // 10-bit ADC
+        #endif
+    
+public:
+    static void init() {
+        pinMode(pin, INPUT);
+        #ifdef ESP32
+        analogSetAttenuation(ADC_11db);  // 0-3.3V range
+        #endif
+    }
+    
+    static uint16_t read() {
+        return analogRead(pin);
+    }
+    
+    static float readVoltage() {
+        return (read() * vRef) / maxValue;
+    }
+    
+    static uint16_t readAverage(uint8_t samples = 10) {
+        uint32_t sum = 0;
+        for (uint8_t i = 0; i < samples; i++) {
+            sum += read();
+            delayMicroseconds(100);  // Settling time
+        }
+        return sum / samples;
+    }
+    
+    static float readVoltageAverage(uint8_t samples = 10) {
+        return (readAverage(samples) * vRef) / maxValue;
+    }
+};
+
+// Usage example
+using BatteryVoltage = AnalogInput<A0>;
+
+void checkBattery() {
+    BatteryVoltage::init();
+    float voltage = BatteryVoltage::readVoltageAverage();
+    
+    // Assuming voltage divider (e.g., 2:1)
+    float batteryVoltage = voltage * 2.0f;
+    
+    if (batteryVoltage < 3.0f) {
+        // Low battery warning
+    }
+}
+```
+
+## Driver Architecture Pattern
+
+```cpp
+// include/drivers/driver_base.h
+#pragma once
+
+// Base driver traits
+template<typename Derived>
+class Driver {
+protected:
+    bool initialized;
+    
+public:
+    Driver() : initialized(false) {}
+    
+    bool begin() {
+        if (initialized) return true;
+        
+        if (static_cast<Derived*>(this)->onBegin()) {
+            initialized = true;
+            return true;
+        }
+        return false;
+    }
+    
+    void end() {
+        if (!initialized) return;
+        
+        static_cast<Derived*>(this)->onEnd();
+        initialized = false;
+    }
+    
+    bool isInitialized() const {
+        return initialized;
+    }
+};
+
+// Example sensor driver
+class DHT22 : public Driver<DHT22> {
+    friend class Driver<DHT22>;
+    
+private:
+    uint8_t pin;
+    float temperature;
+    float humidity;
+    uint32_t lastRead;
+    
+    bool onBegin() {
+        pinMode(pin, INPUT_PULLUP);
+        return true;
+    }
+    
+    void onEnd() {
+        // Nothing special needed
+    }
+    
+    bool readData() {
+        // DHT22 protocol implementation...
+        return true;
+    }
+    
+public:
+    explicit DHT22(uint8_t dataPin) 
+        : pin(dataPin), temperature(0), humidity(0), lastRead(0) {}
+    
+    bool update() {
+        if (!initialized) return false;
+        
+        // Rate limit reads (DHT22 needs 2s between reads)
+        if (millis() - lastRead < 2000) {
+            return true;  // Return cached values
+        }
+        
+        if (readData()) {
+            lastRead = millis();
+            return true;
+        }
+        return false;
+    }
+    
+    float getTemperature() const { return temperature; }
+    float getHumidity() const { return humidity; }
+};
+```
+
+## Testability Patterns
+
+```cpp
+// include/hal/hardware_traits.h
+#pragma once
+
+// Hardware traits for compile-time feature detection
+template<typename Platform>
+struct HardwareTraits {
+    static constexpr bool has_wifi = false;
+    static constexpr bool has_bluetooth = false;
+    static constexpr bool has_usb = false;
+    static constexpr bool has_dma = false;
+    static constexpr bool has_floating_point_unit = false;
+    static constexpr uint32_t flash_size = 0;
+    static constexpr uint32_t ram_size = 0;
+    static constexpr uint32_t eeprom_size = 0;
+};
+
+// Specializations for specific platforms
+#ifdef ESP32
+template<>
+struct HardwareTraits<class ESP32Platform> {
+    static constexpr bool has_wifi = true;
+    static constexpr bool has_bluetooth = true;
+    static constexpr bool has_usb = false;
+    static constexpr bool has_dma = true;
+    static constexpr bool has_floating_point_unit = true;
+    static constexpr uint32_t flash_size = 4 * 1024 * 1024;  // 4MB typical
+    static constexpr uint32_t ram_size = 520 * 1024;        // 520KB
+    static constexpr uint32_t eeprom_size = 0;              // Emulated in flash
+};
+#endif
+
+// Mock hardware for testing
+#ifdef UNIT_TEST
+template<typename T>
+class MockPin {
+private:
+    static bool state;
+    static uint8_t pwmValue;
+    static PinMode mode;
+    
+public:
+    static void init(PinMode m) { mode = m; }
+    static void write(bool value) { state = value; }
+    static bool read() { return state; }
+    static void writePWM(uint8_t value) { pwmValue = value; }
+    
+    // Test helpers
+    static bool getState() { return state; }
+    static uint8_t getPWM() { return pwmValue; }
+    static PinMode getMode() { return mode; }
+    static void setState(bool s) { state = s; }
+};
+
+// Static member definitions
+template<typename T> bool MockPin<T>::state = false;
+template<typename T> uint8_t MockPin<T>::pwmValue = 0;
+template<typename T> PinMode MockPin<T>::mode = PinMode::Input;
+
+// Use mocks in test builds
+    #define LED_PIN MockPin<struct LEDTag>
+    #define BUTTON_PIN MockPin<struct ButtonTag>
+#else
+    // Use real hardware
+    #define LED_PIN DigitalPin<Pins::StatusLED>
+    #define BUTTON_PIN DigitalPin<Pins::Button1>
+#endif
+```
+
+## Best Practices Summary
+
+1. **Use Templates**: Prefer compile-time polymorphism for zero overhead
+2. **Strong Types**: Use type system to prevent configuration errors
+3. **RAII Pattern**: Use constructors/destructors for resource management
+4. **Platform Abstractions**: Hide platform differences behind common interfaces
+5. **Error Handling**: Return error codes, not exceptions
+6. **Mockability**: Design interfaces that can be mocked for testing
+7. **Minimal Overhead**: Abstractions should compile to direct hardware access
+8. **Documentation**: Document hardware assumptions and constraints

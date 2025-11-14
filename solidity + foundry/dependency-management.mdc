@@ -1,0 +1,380 @@
+---
+description: Dependency management best practices for Solidity Foundry projects
+globs:
+  - "**/foundry.toml"
+  - "**/lib/**"
+alwaysApply: true
+---
+
+# Dependency Management
+
+## Overview
+
+Foundry uses git submodules for dependency management. This document outlines best practices for managing dependencies in Solidity projects.
+
+## Foundry Dependency System
+
+### Installing Dependencies
+
+```bash
+# Install OpenZeppelin Contracts
+forge install OpenZeppelin/openzeppelin-contracts
+
+# Install Forge Standard Library
+forge install foundry-rs/forge-std
+
+# Install specific version (commit hash)
+forge install OpenZeppelin/openzeppelin-contracts@v4.9.0
+```
+
+### Dependency Location
+
+Dependencies are installed in the `lib/` directory as git submodules:
+
+```
+project-root/
+├── lib/
+│   ├── openzeppelin-contracts/
+│   ├── forge-std/
+│   └── other-dependency/
+├── src/
+└── foundry.toml
+```
+
+## Remappings
+
+### Configuration
+
+Define remappings in `foundry.toml`:
+
+```toml
+[profile.default]
+remappings = [
+    "@openzeppelin/=lib/openzeppelin-contracts/",
+    "@forge-std/=lib/forge-std/src/",
+    "@chainlink/=lib/chainlink/contracts/src/",
+]
+```
+
+### Usage in Contracts
+
+```solidity
+// ✅ GOOD - Use remappings
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+import "@forge-std/Test.sol";
+```
+
+## Version Management
+
+### Pinning Versions
+
+**Always pin dependencies to specific versions:**
+
+```bash
+# Install specific version
+forge install OpenZeppelin/openzeppelin-contracts@v4.9.0
+
+# Or use commit hash for exact version
+forge install OpenZeppelin/openzeppelin-contracts@8b3b8c8
+```
+
+### foundry.toml Configuration
+
+```toml
+[profile.default]
+# Pin Solidity version
+solc = "0.8.20"
+
+# Remappings
+remappings = [
+    "@openzeppelin/=lib/openzeppelin-contracts/",
+    "@forge-std/=lib/forge-std/src/",
+]
+```
+
+## Common Dependencies
+
+### 1. OpenZeppelin Contracts
+
+**Standard library for secure smart contracts:**
+
+```bash
+forge install OpenZeppelin/openzeppelin-contracts
+```
+
+**Common imports:**
+
+```solidity
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/access/AccessControl.sol";
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/utils/math/SafeMath.sol";
+```
+
+### 2. Forge Standard Library
+
+**Testing and scripting utilities:**
+
+```bash
+forge install foundry-rs/forge-std
+```
+
+**Common imports:**
+
+```solidity
+import "@forge-std/Test.sol";
+import "@forge-std/Script.sol";
+import "@forge-std/console.sol";
+```
+
+### 3. Chainlink Contracts
+
+**For oracle and VRF functionality:**
+
+```bash
+forge install smartcontractkit/chainlink-brownie-contracts
+```
+
+### 4. Solmate
+
+**Gas-optimized alternatives:**
+
+```bash
+forge install transmissions11/solmate
+```
+
+## Dependency Best Practices
+
+### 1. Pin Versions
+
+```bash
+# ✅ GOOD - Pin to specific version
+forge install OpenZeppelin/openzeppelin-contracts@v4.9.0
+
+# ❌ BAD - Install latest (can break)
+forge install OpenZeppelin/openzeppelin-contracts
+```
+
+### 2. Use Audited Libraries
+
+```solidity
+// ✅ GOOD - Use audited libraries
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+
+// ❌ BAD - Copy-paste unaudited code
+// Don't copy code from unverified sources
+```
+
+### 3. Minimize Dependencies
+
+```solidity
+// ✅ GOOD - Only import what you need
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+
+// ❌ BAD - Import entire library
+import "@openzeppelin/contracts/";
+```
+
+### 4. Review Dependencies
+
+Before adding a dependency:
+
+- [ ] Is it audited?
+- [ ] Is it maintained?
+- [ ] Does it fit your needs?
+- [ ] Are there security concerns?
+- [ ] Is it gas efficient?
+
+## Updating Dependencies
+
+### Update Process
+
+```bash
+# 1. Check current version
+cd lib/openzeppelin-contracts
+git log --oneline -1
+
+# 2. Update to latest version
+cd ../..
+forge update OpenZeppelin/openzeppelin-contracts
+
+# 3. Test after update
+forge test
+
+# 4. Review changelog for breaking changes
+```
+
+### Breaking Changes
+
+When updating dependencies:
+
+1. **Review Changelog** - Check for breaking changes
+2. **Run Tests** - Ensure all tests pass
+3. **Check Gas** - Verify gas usage hasn't increased significantly
+4. **Security Review** - Review security implications
+
+## Git Submodules
+
+### Initializing Submodules
+
+```bash
+# Clone repository with submodules
+git clone --recurse-submodules <repository-url>
+
+# Or initialize existing repository
+git submodule update --init --recursive
+```
+
+### Updating Submodules
+
+```bash
+# Update all submodules
+git submodule update --remote
+
+# Update specific submodule
+git submodule update --remote lib/openzeppelin-contracts
+```
+
+### Committing Submodule Changes
+
+```bash
+# When dependency is updated, commit submodule reference
+git add lib/openzeppelin-contracts
+git commit -m "chore(deps): update OpenZeppelin Contracts to v4.9.0"
+```
+
+## Security Considerations
+
+### 1. Audit Dependencies
+
+```bash
+# ✅ GOOD - Use audited libraries
+# OpenZeppelin Contracts are audited
+
+# ❌ BAD - Use unaudited code
+# Don't use unverified dependencies
+```
+
+### 2. Check for Vulnerabilities
+
+```bash
+# Review dependency security
+# Check for known vulnerabilities
+# Review audit reports
+```
+
+### 3. Minimize Attack Surface
+
+```solidity
+// ✅ GOOD - Minimal dependencies
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+
+// ❌ BAD - Too many dependencies
+// Each dependency adds potential attack surface
+```
+
+## foundry.toml Configuration
+
+### Complete Example
+
+```toml
+[profile.default]
+src = "src"
+out = "out"
+libs = ["lib"]
+test = "test"
+script = "script"
+
+# Solidity version
+solc = "0.8.20"
+
+# Optimizer
+optimizer = true
+optimizer_runs = 200
+
+# Remappings
+remappings = [
+    "@openzeppelin/=lib/openzeppelin-contracts/",
+    "@forge-std/=lib/forge-std/src/",
+]
+
+# Test settings
+[profile.default.test]
+fuzz = { runs = 256 }
+invariant = { runs = 256 }
+
+# Coverage
+[profile.default.coverage]
+exclude = ["test", "script"]
+```
+
+## .gitignore
+
+Ensure dependencies are handled correctly:
+
+```gitignore
+# Foundry
+out/
+cache/
+broadcast/
+
+# Dependencies (submodules are tracked, but build artifacts are not)
+lib/**/out/
+lib/**/cache/
+```
+
+## Best Practices Summary
+
+### ✅ DO
+
+- Pin dependencies to specific versions
+- Use audited libraries (OpenZeppelin, etc.)
+- Review dependencies before adding
+- Test after updating dependencies
+- Document dependency choices
+- Keep dependencies up to date (with testing)
+
+### ❌ DON'T
+
+- Use unverified dependencies
+- Copy-paste code from unverified sources
+- Update dependencies without testing
+- Use too many dependencies
+- Ignore security considerations
+
+## Common Commands
+
+```bash
+# Install dependency
+forge install <org>/<repo>
+
+# Install specific version
+forge install <org>/<repo>@<version>
+
+# Update dependency
+forge update <org>/<repo>
+
+# Update all dependencies
+forge update
+
+# Remove dependency
+forge remove <org>/<repo>
+
+# List dependencies
+ls lib/
+
+# Initialize submodules
+git submodule update --init --recursive
+```
+
+## Remember
+
+- **Pin Versions** - Always pin to specific versions
+- **Use Audited Libraries** - Prefer OpenZeppelin and other audited code
+- **Minimize Dependencies** - Only add what you need
+- **Test Updates** - Always test after updating
+- **Security First** - Review security implications
+- **Document Choices** - Document why dependencies are chosen

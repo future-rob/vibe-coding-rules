@@ -1,0 +1,755 @@
+---
+description: Memory management patterns and best practices for resource-constrained embedded systems
+globs:
+  - "**/*.cpp"
+  - "**/*.c"
+  - "**/*.h"
+  - "**/src/**"
+alwaysApply: true
+---
+
+# Memory Management Patterns
+
+## Overview
+
+Memory is one of the most critical resources in embedded systems. This document provides patterns and guidelines for efficient memory usage, avoiding common pitfalls, and ensuring reliable operation within tight memory constraints.
+
+## Memory Architecture
+
+### Understanding Memory Regions
+
+```cpp
+/*
+ * Typical Memory Layout (AVR Example):
+ * 
+ * Flash (Program Memory):
+ * ├── .text     - Code
+ * ├── .rodata   - Constants
+ * └── .progmem  - PROGMEM data
+ * 
+ * SRAM:
+ * ├── .data     - Initialized variables
+ * ├── .bss      - Uninitialized variables
+ * ├── Heap ↓    - Dynamic allocation (grows down)
+ * ├── ← Free →
+ * └── Stack ↑   - Function calls (grows up)
+ * 
+ * EEPROM:
+ * └── Persistent storage
+ */
+
+// Memory size detection
+#ifdef ARDUINO_AVR_UNO
+    constexpr size_t FLASH_SIZE = 32768;   // 32KB
+    constexpr size_t SRAM_SIZE = 2048;     // 2KB
+    constexpr size_t EEPROM_SIZE = 1024;   // 1KB
+#elif defined(ESP32)
+    constexpr size_t FLASH_SIZE = 4194304;  // 4MB typical
+    constexpr size_t SRAM_SIZE = 520192;    // ~520KB
+    constexpr size_t PSRAM_SIZE = 0;        // Optional
+#elif defined(STM32F103xB)
+    constexpr size_t FLASH_SIZE = 131072;   // 128KB
+    constexpr size_t SRAM_SIZE = 20480;     // 20KB
+#endif
+```
+
+## Static Memory Allocation
+
+### Prefer Stack Over Heap
+
+```cpp
+// ❌ BAD - Dynamic allocation
+void processData() {
+    int* buffer = new int[100];  // Heap allocation
+    // ... use buffer ...
+    delete[] buffer;  // Must remember to free
+}
+
+// ❌ BAD - Using String class
+String message = "Hello ";
+message += "World";  // Multiple allocations
+
+// ✅ GOOD - Stack allocation
+void processData() {
+    int buffer[100];  // Stack allocation
+    // ... use buffer ...
+    // Automatically cleaned up
+}
+
+// ✅ GOOD - Fixed-size character arrays
+char message[32];
+strcpy(message, "Hello ");
+strcat(message, "World");  // No allocation
+```
+
+### Compile-Time Memory Allocation
+
+```cpp
+// Template-based buffer sizing
+template<size_t SIZE>
+class StaticBuffer {
+private:
+    uint8_t data[SIZE];
+    size_t length;
+    
+public:
+    StaticBuffer() : length(0) {}
+    
+    bool write(const uint8_t* src, size_t len) {
+        if (length + len > SIZE) return false;
+        
+        memcpy(&data[length], src, len);
+        length += len;
+        return true;
+    }
+    
+    void clear() { length = 0; }
+    size_t size() const { return length; }
+    size_t capacity() const { return SIZE; }
+    const uint8_t* getData() const { return data; }
+};
+
+// Usage with compile-time size
+StaticBuffer<256> txBuffer;
+StaticBuffer<64> cmdBuffer;
+```
+
+## PROGMEM Usage
+
+### Storing Constants in Flash
+
+```cpp
+// String constants in PROGMEM
+const char welcomeMsg[] PROGMEM = "Welcome to Embedded System v1.0";
+const char errorMsg[] PROGMEM = "Error: Invalid command";
+
+// String table in PROGMEM
+const char* const stringTable[] PROGMEM = {
+    welcomeMsg,
+    errorMsg
+};
+
+// Accessing PROGMEM strings
+void printProgmemString(const char* str) {
+    char buffer[64];
+    strcpy_P(buffer, str);  // Copy from PROGMEM to RAM
+    Serial.println(buffer);
+}
+
+// F() macro for immediate use (AVR only)
+Serial.println(F("This string stays in flash"));
+
+// Large data arrays in PROGMEM
+const uint8_t lookupTable[256] PROGMEM = {
+    0x00, 0x01, 0x02, 0x03, // ... etc
+};
+
+// Accessing PROGMEM data
+uint8_t getValue(uint8_t index) {
+    return pgm_read_byte(&lookupTable[index]);
+}
+
+// Structures in PROGMEM
+struct ConfigData {
+    uint16_t version;
+    uint32_t baudRate;
+    uint8_t deviceId;
+};
+
+const ConfigData defaultConfig PROGMEM = {
+    .version = 0x0100,
+    .baudRate = 115200,
+    .deviceId = 0x01
+};
+
+// Reading structure from PROGMEM
+ConfigData readConfig() {
+    ConfigData config;
+    memcpy_P(&config, &defaultConfig, sizeof(ConfigData));
+    return config;
+}
+```
+
+### PROGMEM Best Practices
+
+```cpp
+// Centralized string storage
+namespace Strings {
+    const char STARTUP[] PROGMEM = "System starting...";
+    const char READY[] PROGMEM = "Ready";
+    const char ERROR_MEMORY[] PROGMEM = "Out of memory";
+    const char ERROR_TIMEOUT[] PROGMEM = "Operation timeout";
+}
+
+// Helper class for PROGMEM strings
+class ProgmemString {
+private:
+    const char* ptr;
+    
+public:
+    ProgmemString(const char* p) : ptr(p) {}
+    
+    void print() {
+        char c;
+        while ((c = pgm_read_byte(ptr++)) != 0) {
+            Serial.write(c);
+        }
+    }
+    
+    size_t length() {
+        return strlen_P(ptr);
+    }
+    
+    void copyTo(char* buffer, size_t maxLen) {
+        strncpy_P(buffer, ptr, maxLen - 1);
+        buffer[maxLen - 1] = '\0';
+    }
+};
+```
+
+## Memory Pools
+
+### Fixed-Size Block Allocation
+
+```cpp
+// Memory pool for fixed-size allocations
+template<typename T, size_t POOL_SIZE>
+class MemoryPool {
+private:
+    union Block {
+        T data;
+        Block* next;
+    };
+    
+    Block pool[POOL_SIZE];
+    Block* freeList;
+    
+public:
+    MemoryPool() {
+        // Initialize free list
+        freeList = &pool[0];
+        for (size_t i = 0; i < POOL_SIZE - 1; i++) {
+            pool[i].next = &pool[i + 1];
+        }
+        pool[POOL_SIZE - 1].next = nullptr;
+    }
+    
+    T* allocate() {
+        if (!freeList) return nullptr;
+        
+        Block* block = freeList;
+        freeList = freeList->next;
+        return &block->data;
+    }
+    
+    void deallocate(T* ptr) {
+        if (!ptr) return;
+        
+        Block* block = reinterpret_cast<Block*>(ptr);
+        block->next = freeList;
+        freeList = block;
+    }
+    
+    size_t available() const {
+        size_t count = 0;
+        Block* current = freeList;
+        while (current) {
+            count++;
+            current = current->next;
+        }
+        return count;
+    }
+};
+
+// Usage example
+struct Message {
+    uint8_t type;
+    uint8_t length;
+    uint8_t data[30];
+};
+
+MemoryPool<Message, 10> messagePool;
+
+Message* allocateMessage() {
+    return messagePool.allocate();
+}
+
+void freeMessage(Message* msg) {
+    messagePool.deallocate(msg);
+}
+```
+
+## Ring Buffers
+
+### Efficient Circular Buffers
+
+```cpp
+// Lock-free ring buffer for ISR communication
+template<typename T, size_t SIZE>
+class RingBuffer {
+    static_assert((SIZE & (SIZE - 1)) == 0, "Size must be power of 2");
+    
+private:
+    T buffer[SIZE];
+    volatile size_t head;
+    volatile size_t tail;
+    
+public:
+    RingBuffer() : head(0), tail(0) {}
+    
+    bool push(const T& item) {
+        size_t next = (head + 1) & (SIZE - 1);
+        if (next == tail) return false;  // Full
+        
+        buffer[head] = item;
+        head = next;
+        return true;
+    }
+    
+    bool pop(T& item) {
+        if (head == tail) return false;  // Empty
+        
+        item = buffer[tail];
+        tail = (tail + 1) & (SIZE - 1);
+        return true;
+    }
+    
+    bool isEmpty() const {
+        return head == tail;
+    }
+    
+    bool isFull() const {
+        return ((head + 1) & (SIZE - 1)) == tail;
+    }
+    
+    size_t size() const {
+        return (head - tail) & (SIZE - 1);
+    }
+    
+    size_t available() const {
+        return SIZE - 1 - size();
+    }
+    
+    // Peek without removing
+    bool peek(T& item) const {
+        if (head == tail) return false;
+        item = buffer[tail];
+        return true;
+    }
+};
+
+// Specialized byte buffer for serial communication
+class SerialBuffer {
+private:
+    static constexpr size_t BUFFER_SIZE = 256;  // Power of 2
+    uint8_t buffer[BUFFER_SIZE];
+    volatile uint8_t head;
+    volatile uint8_t tail;
+    
+public:
+    SerialBuffer() : head(0), tail(0) {}
+    
+    // ISR-safe push
+    void push(uint8_t data) {
+        uint8_t next = (head + 1) & (BUFFER_SIZE - 1);
+        if (next != tail) {
+            buffer[head] = data;
+            head = next;
+        }
+    }
+    
+    // Main loop pop
+    int pop() {
+        if (head == tail) return -1;
+        
+        uint8_t data = buffer[tail];
+        tail = (tail + 1) & (BUFFER_SIZE - 1);
+        return data;
+    }
+    
+    size_t available() const {
+        return (head - tail) & (BUFFER_SIZE - 1);
+    }
+};
+```
+
+## String Handling
+
+### Safe String Operations
+
+```cpp
+// Safe string utilities
+class SafeString {
+public:
+    // Safe string copy with size limit
+    static void copy(char* dest, const char* src, size_t destSize) {
+        if (destSize == 0) return;
+        
+        size_t i;
+        for (i = 0; i < destSize - 1 && src[i] != '\0'; i++) {
+            dest[i] = src[i];
+        }
+        dest[i] = '\0';
+    }
+    
+    // Safe string concatenation
+    static void concat(char* dest, const char* src, size_t destSize) {
+        size_t destLen = strlen(dest);
+        if (destLen >= destSize - 1) return;
+        
+        copy(dest + destLen, src, destSize - destLen);
+    }
+    
+    // Safe formatted string
+    template<typename... Args>
+    static void format(char* dest, size_t destSize, const char* format, Args... args) {
+        snprintf(dest, destSize, format, args...);
+        dest[destSize - 1] = '\0';  // Ensure null termination
+    }
+    
+    // Integer to string conversion without allocation
+    static void itoa(int value, char* buffer, size_t bufferSize) {
+        if (bufferSize == 0) return;
+        
+        bool negative = value < 0;
+        if (negative) value = -value;
+        
+        size_t pos = 0;
+        do {
+            if (pos >= bufferSize - 1) break;
+            buffer[pos++] = '0' + (value % 10);
+            value /= 10;
+        } while (value > 0);
+        
+        if (negative && pos < bufferSize - 1) {
+            buffer[pos++] = '-';
+        }
+        
+        buffer[pos] = '\0';
+        
+        // Reverse the string
+        for (size_t i = 0; i < pos / 2; i++) {
+            char temp = buffer[i];
+            buffer[i] = buffer[pos - 1 - i];
+            buffer[pos - 1 - i] = temp;
+        }
+    }
+};
+
+// String builder without dynamic allocation
+template<size_t CAPACITY>
+class StringBuilder {
+private:
+    char buffer[CAPACITY];
+    size_t length;
+    
+public:
+    StringBuilder() : length(0) {
+        buffer[0] = '\0';
+    }
+    
+    StringBuilder& append(const char* str) {
+        size_t strLen = strlen(str);
+        size_t available = CAPACITY - length - 1;
+        size_t toCopy = (strLen < available) ? strLen : available;
+        
+        memcpy(buffer + length, str, toCopy);
+        length += toCopy;
+        buffer[length] = '\0';
+        
+        return *this;
+    }
+    
+    StringBuilder& append(char c) {
+        if (length < CAPACITY - 1) {
+            buffer[length++] = c;
+            buffer[length] = '\0';
+        }
+        return *this;
+    }
+    
+    StringBuilder& append(int value) {
+        char temp[12];  // Enough for 32-bit int
+        SafeString::itoa(value, temp, sizeof(temp));
+        return append(temp);
+    }
+    
+    const char* toString() const { return buffer; }
+    size_t size() const { return length; }
+    void clear() { length = 0; buffer[0] = '\0'; }
+};
+```
+
+## Stack Usage Monitoring
+
+### Stack Overflow Prevention
+
+```cpp
+// Stack canary implementation
+class StackMonitor {
+private:
+    static constexpr uint32_t CANARY_VALUE = 0xDEADBEEF;
+    uint32_t canary;
+    
+public:
+    StackMonitor() : canary(CANARY_VALUE) {}
+    
+    ~StackMonitor() {
+        if (canary != CANARY_VALUE) {
+            // Stack corruption detected!
+            // Take appropriate action (reset, log, etc.)
+            while (true) {
+                digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN));
+                delay(100);  // Fast blink indicates error
+            }
+        }
+    }
+    
+    bool isValid() const {
+        return canary == CANARY_VALUE;
+    }
+};
+
+// Stack usage estimation
+int getFreeStackSize() {
+    #ifdef __AVR__
+    extern int __heap_start, *__brkval;
+    int v;
+    return (int) &v - (__brkval == 0 ? (int) &__heap_start : (int) __brkval);
+    #elif defined(ESP32)
+    return uxTaskGetStackHighWaterMark(NULL);
+    #else
+    return -1;  // Not implemented for this platform
+    #endif
+}
+
+// Function to paint stack for usage analysis
+void paintStack(uint8_t pattern = 0xA5) {
+    uint8_t dummy;
+    uint8_t* start = &dummy;
+    
+    // Paint downward (typical stack growth direction)
+    for (int i = 1; i < 200; i++) {
+        *(start - i) = pattern;
+    }
+}
+
+// Check how much stack was used
+size_t checkStackUsage(uint8_t pattern = 0xA5) {
+    uint8_t dummy;
+    uint8_t* start = &dummy;
+    
+    size_t used = 0;
+    for (int i = 1; i < 200; i++) {
+        if (*(start - i) != pattern) {
+            used = i;
+        }
+    }
+    
+    return used;
+}
+```
+
+## Memory-Efficient Data Structures
+
+### Bit-Packed Structures
+
+```cpp
+// Bit fields for memory efficiency
+struct SensorReading {
+    uint16_t temperature : 10;  // -512 to 511 (0.1°C resolution)
+    uint16_t humidity : 7;      // 0 to 100%
+    uint16_t pressure : 10;     // 0 to 1023 hPa
+    uint16_t battery : 5;       // 0 to 31 (0.1V steps)
+} __attribute__((packed));
+
+// Bit vector for flags
+template<size_t N>
+class BitVector {
+private:
+    static constexpr size_t BYTES = (N + 7) / 8;
+    uint8_t bits[BYTES];
+    
+public:
+    BitVector() {
+        memset(bits, 0, BYTES);
+    }
+    
+    void set(size_t index, bool value = true) {
+        if (index >= N) return;
+        
+        size_t byte = index / 8;
+        size_t bit = index % 8;
+        
+        if (value) {
+            bits[byte] |= (1 << bit);
+        } else {
+            bits[byte] &= ~(1 << bit);
+        }
+    }
+    
+    bool get(size_t index) const {
+        if (index >= N) return false;
+        
+        size_t byte = index / 8;
+        size_t bit = index % 8;
+        
+        return (bits[byte] & (1 << bit)) != 0;
+    }
+    
+    void clear() {
+        memset(bits, 0, BYTES);
+    }
+    
+    size_t count() const {
+        size_t count = 0;
+        for (size_t i = 0; i < BYTES; i++) {
+            count += __builtin_popcount(bits[i]);
+        }
+        return count;
+    }
+};
+
+// Usage: 100 flags in just 13 bytes
+BitVector<100> deviceFlags;
+```
+
+### Compressed Data Storage
+
+```cpp
+// Simple compression for repetitive data
+class RunLengthEncoder {
+public:
+    // Encode data with run-length encoding
+    static size_t encode(const uint8_t* input, size_t inputLen, 
+                        uint8_t* output, size_t outputMax) {
+        size_t outPos = 0;
+        size_t inPos = 0;
+        
+        while (inPos < inputLen && outPos < outputMax - 1) {
+            uint8_t value = input[inPos];
+            uint8_t count = 1;
+            
+            // Count consecutive same values
+            while (inPos + count < inputLen && 
+                   count < 255 && 
+                   input[inPos + count] == value) {
+                count++;
+            }
+            
+            // Write count and value
+            if (outPos + 2 <= outputMax) {
+                output[outPos++] = count;
+                output[outPos++] = value;
+                inPos += count;
+            } else {
+                break;
+            }
+        }
+        
+        return outPos;
+    }
+    
+    // Decode run-length encoded data
+    static size_t decode(const uint8_t* input, size_t inputLen,
+                        uint8_t* output, size_t outputMax) {
+        size_t outPos = 0;
+        size_t inPos = 0;
+        
+        while (inPos < inputLen - 1 && outPos < outputMax) {
+            uint8_t count = input[inPos++];
+            uint8_t value = input[inPos++];
+            
+            for (uint8_t i = 0; i < count && outPos < outputMax; i++) {
+                output[outPos++] = value;
+            }
+        }
+        
+        return outPos;
+    }
+};
+```
+
+## Memory Allocation Tracking
+
+### Debug Memory Usage
+
+```cpp
+#ifdef DEBUG_MEMORY
+class MemoryTracker {
+private:
+    struct AllocationInfo {
+        void* ptr;
+        size_t size;
+        const char* file;
+        int line;
+    };
+    
+    static AllocationInfo allocations[50];
+    static size_t allocationCount;
+    static size_t totalAllocated;
+    
+public:
+    static void* allocate(size_t size, const char* file, int line) {
+        void* ptr = malloc(size);
+        if (ptr && allocationCount < 50) {
+            allocations[allocationCount++] = {ptr, size, file, line};
+            totalAllocated += size;
+        }
+        return ptr;
+    }
+    
+    static void deallocate(void* ptr) {
+        for (size_t i = 0; i < allocationCount; i++) {
+            if (allocations[i].ptr == ptr) {
+                totalAllocated -= allocations[i].size;
+                // Remove from list
+                for (size_t j = i; j < allocationCount - 1; j++) {
+                    allocations[j] = allocations[j + 1];
+                }
+                allocationCount--;
+                break;
+            }
+        }
+        free(ptr);
+    }
+    
+    static void report() {
+        Serial.print(F("Memory allocations: "));
+        Serial.println(allocationCount);
+        Serial.print(F("Total allocated: "));
+        Serial.println(totalAllocated);
+        
+        for (size_t i = 0; i < allocationCount; i++) {
+            Serial.print(F("  "));
+            Serial.print(allocations[i].size);
+            Serial.print(F(" bytes at "));
+            Serial.print(allocations[i].file);
+            Serial.print(F(":"));
+            Serial.println(allocations[i].line);
+        }
+    }
+};
+
+// Debug macros
+#define DEBUG_NEW(size) MemoryTracker::allocate(size, __FILE__, __LINE__)
+#define DEBUG_DELETE(ptr) MemoryTracker::deallocate(ptr)
+
+#else
+#define DEBUG_NEW(size) malloc(size)
+#define DEBUG_DELETE(ptr) free(ptr)
+#endif
+```
+
+## Best Practices Summary
+
+1. **Avoid Dynamic Allocation**: Use stack and global variables
+2. **Use PROGMEM**: Store constants in flash memory
+3. **Fixed-Size Buffers**: Prefer compile-time sizing
+4. **Memory Pools**: Use for predictable allocation patterns
+5. **Ring Buffers**: Implement efficient circular buffers
+6. **String Safety**: Never use String class, use char arrays
+7. **Monitor Stack**: Implement stack overflow detection
+8. **Bit Packing**: Use bit fields for compact storage
+9. **Track Usage**: Monitor memory in debug builds
+10. **Platform Awareness**: Consider platform-specific constraints

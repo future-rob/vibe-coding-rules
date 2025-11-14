@@ -1,0 +1,123 @@
+---
+description: JSDoc commenting standards focusing on explaining intent and complex logic, not obvious code
+globs:
+  - "**/*.ts"
+  - "**/*.tsx"
+alwaysApply: true
+---
+# Codebase Commenting Guidelines
+
+## Philosophy
+
+Our primary goal for commenting is **clarity and maintainability**. In a TypeScript codebase, types already provide significant information about the *what*. Therefore, our comments should focus on the **why**, the **intent**, and the **complexities** that aren't immediately obvious from the code and types alone.
+
+We use **JSDoc** as the standard format. This provides structure, integrates well with TypeScript's language server for enhanced IntelliSense, and offers a consistent format for both human developers and AI systems interacting with our code.
+
+Comments should add value. Avoid redundant comments that merely restate the obvious or duplicate type information. Prioritize commenting public APIs, complex logic, and non-intuitive decisions.
+
+## Core Standard: JSDoc
+
+All multi-line comments explaining functions, classes, types, components, hooks, or complex blocks should use the JSDoc format (`/** ... */`).
+
+## When to Comment
+
+Focus commenting efforts where they provide the most value:
+
+1.  **Public APIs / Exports:**
+    *   **Functions/Methods:** Explain purpose, parameters, return values, and any potential side effects or errors.
+    *   **React Components:** Describe the component's purpose, its props, and any significant state or behavior. Use `@param` for props.
+    *   **Custom Hooks:** Explain what the hook does, its parameters, and what it returns.
+    *   **Utility Functions/Classes:** Document any exported helpers or classes intended for reuse.
+    *   **Types/Interfaces:** Explain the purpose of complex or broadly used custom types if the name isn't self-explanatory.
+
+2.  **Complex Logic:**
+    *   If an algorithm, calculation, or piece of business logic is intricate or non-obvious, add comments explaining the approach and the reasoning behind it. Focus on the *why*.
+
+3.  **Non-Obvious Decisions & Trade-offs:**
+    *   If a particular implementation choice was made for specific reasons (performance, browser compatibility, workaround for a library bug), document it. This provides crucial context for future maintainers.
+
+4.  **Important Constants or Configuration:**
+    *   If the purpose of a constant isn't immediately clear from its name and value, add a brief explanation.
+
+5.  **Workarounds and `TODO`s:**
+    *   Use `// HACK:` or `// WORKAROUND:` for temporary fixes, explaining *why* the workaround is necessary and potentially linking to an issue tracker.
+    *   Use `// TODO:` for planned improvements or missing features, ideally with context or an issue link.
+
+6.  **Type Clarifications (Sparingly):**
+    *   In rare cases where TypeScript's inference might be ambiguous or a type needs further semantic meaning, a JSDoc `@type` tag or explanation can help. *However, prefer refining the TypeScript types themselves first.*
+
+## How to Comment with JSDoc (Essential Tags)
+
+Use clear, concise English. Start block comments with a brief summary sentence.
+
+```typescript
+/**
+ * [Summary sentence explaining the overall purpose.]
+ *
+ * [Optional: More detailed explanation, rationale, or context.]
+ *
+ * @param {Type} name - [Description of the parameter's purpose and expected value.]
+ * @param {Type} [optionalName] - [Description for optional parameter. Use brackets.]
+ * @param {Type} [nameWithDefault='default'] - [Description for parameter with default.]
+ * @param {object} options - Description of the options object.
+ * @param {string} options.id - Description of the 'id' property within options.
+ * @param {number} [options.count] - Description of optional 'count' property.
+ * @returns {ReturnType} - [Description of what the function returns and why/when.]
+ * @throws {ErrorType} - [Description of when/why this error might be thrown.]
+ * @deprecated [Reason for deprecation and/or alternative to use.]
+ * @see {Link/Reference} - [Link to related functions, documentation, or issue tracker.]
+ * @example
+ * ```typescript
+ * // Example usage demonstrates how to call it.
+ * const result = myFunction(inputValue);
+ * console.log(result);
+ * ```
+ */
+ function myFunction(name: string, options: { id: string; count?: number }): ReturnType {
+   // ...implementation
+ }
+
+/**
+ * Represents a user profile within the application.
+ * Used across various UI components and API interactions.
+ */
+export type UserProfile = {
+  /** Unique identifier for the user. */
+  id: string;
+  /** User's display name. May not be unique. */
+  name: string;
+  /** Optional email address. */
+  email?: string;
+};
+
+/**
+ * Renders the main application layout, including header and footer.
+ *
+ * @param {object} props - Component properties.
+ * @param {React.ReactNode} props.children - Content to be rendered within the layout.
+ * @returns {JSX.Element} The main application layout structure.
+ */
+export const MainLayout = ({ children }: { children: React.ReactNode }): JSX.Element => {
+  // ...implementation
+};
+```
+
+**Key JSDoc Tags to Use:**
+
+*   **Description:** Always provide a clear summary. Add more detail if necessary.
+*   **`@param {Type} name - Description`**: Essential for functions/methods/hooks. Explain the *role* of the parameter. TypeScript handles the type, JSDoc explains the *purpose*.
+*   **`@returns {Type} - Description`**: Explain *what* is being returned and under what conditions, especially if it's complex or conditional.
+*   **`@props {object} - Description`** (Often implicit via `@param` in functional components): Used for documenting component props object. Individual props can be documented using `@param {Type} props.propName - Description`.
+*   **`@type {Type}`**: Use primarily for documenting constants or variables where type inference needs clarification (less common with explicit TS types).
+*   **`@example`**: Very helpful for demonstrating usage, especially for utilities or complex functions.
+*   **`@throws {ErrorType} - Condition`**: Document expected errors that callers might need to handle.
+*   **`@deprecated - Reason/Alternative`**: Crucial for managing API evolution.
+*   **`@see {Link/Reference}`**: Useful for linking to related code, external docs, or issue trackers.
+
+## What NOT to Comment
+
+*   **Obvious Code:** Don't explain code that is self-evident (e.g., `// Increment count` for `count++`).
+*   **Exact Type Duplication:** Avoid comments that just re-state the TypeScript type (e.g., `/** @param {string} userId - The user ID */` when the TS signature is `userId: string`). Focus on *purpose* if adding a `@param` comment.
+*   **Version Control Information:** Don't add comments about authors or change history (`// Changed by John Doe on 2023-10-27`). Use `git blame` and commit history for this.
+*   **Outdated Comments:** Delete or update comments ruthlessly if the code changes. Incorrect comments are worse than no comments.
+*   **Commented-Out Code:** Remove dead code instead of commenting it out. Use version control to retrieve old code if needed.

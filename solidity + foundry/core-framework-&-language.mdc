@@ -1,0 +1,301 @@
+---
+description: Core framework, language, and runtime specifications for Solidity Foundry projects
+globs:
+  - "**/*.sol"
+  - "**/foundry.toml"
+  - "**/script/**"
+  - "**/test/**"
+alwaysApply: true
+---
+
+# Core Framework & Language
+
+## Overview
+
+This document defines the foundational technology stack and runtime environment for Solidity smart contract development using Foundry. All code must align with these specifications.
+
+## Language
+
+- **Language:** [Solidity](https://soliditylang.org/) 0.8.20+
+  - Used throughout the codebase for smart contract development
+  - Strict compiler settings enabled
+  - All contracts must use Solidity 0.8.20 or higher
+  - Leverage modern Solidity features (custom errors, unchecked blocks, etc.)
+
+## Framework
+
+- **Framework:** [Foundry](https://book.getfoundry.sh/)
+  - **Forge:** Build, test, and deploy tool
+  - **Cast:** CLI for interacting with EVM chains
+  - **Anvil:** Local Ethereum node
+  - **Chisel:** Solidity REPL
+  - Provides fast compilation, testing, and deployment
+
+## Solidity Version
+
+Always specify the Solidity version pragma at the top of each contract file:
+
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+```
+
+### Version Requirements
+
+- **Minimum:** 0.8.20
+- **Recommended:** Latest stable version (0.8.x)
+- **Rationale:** 0.8.20+ includes custom errors, improved gas optimization, and security features
+
+## Foundry Configuration
+
+### foundry.toml
+
+```toml
+[profile.default]
+src = "src"
+out = "out"
+libs = ["lib"]
+test = "test"
+script = "script"
+
+# Solidity compiler settings
+solc = "0.8.20"
+optimizer = true
+optimizer_runs = 200
+via_ir = false
+
+# Test settings
+fuzz = { runs = 256 }
+invariant = { runs = 256 }
+
+# Coverage
+[profile.default.coverage]
+exclude = ["test", "script"]
+
+# Gas reporting
+gas_reports = ["*"]
+
+# Remappings
+remappings = [
+    "@openzeppelin/=lib/openzeppelin-contracts/",
+    "@forge-std/=lib/forge-std/src/",
+]
+```
+
+## Project Structure
+
+Standard Foundry project structure:
+
+```
+project-root/
+├── foundry.toml          # Foundry configuration
+├── .gitignore
+├── .github/
+│   └── workflows/
+│       └── ci.yml        # CI/CD workflows
+├── script/
+│   └── Deploy.s.sol      # Deployment scripts
+├── src/
+│   ├── contracts/        # Main contracts
+│   │   ├── MyContract.sol
+│   │   └── interfaces/
+│   │       └── IMyContract.sol
+│   ├── libraries/        # Reusable libraries
+│   │   └── Math.sol
+│   └── utils/            # Utility contracts
+│       └── Errors.sol
+├── test/
+│   ├── MyContract.t.sol  # Test files
+│   └── mocks/            # Mock contracts
+│       └── MockERC20.sol
+└── lib/                  # Dependencies (git submodules)
+    ├── forge-std/
+    └── openzeppelin-contracts/
+```
+
+## Compiler Settings
+
+### Optimization
+
+```toml
+optimizer = true
+optimizer_runs = 200  # Balance between gas and compilation time
+via_ir = false        # Use IR-based codegen for complex contracts if needed
+```
+
+### Version Pragma
+
+Always use caret (`^`) for version ranges to allow patch updates:
+
+```solidity
+pragma solidity ^0.8.20;  // Allows 0.8.20, 0.8.21, etc., but not 0.9.0
+```
+
+## Core Dependencies
+
+Essential libraries for Solidity development:
+
+### OpenZeppelin Contracts
+
+```bash
+forge install OpenZeppelin/openzeppelin-contracts
+```
+
+Common imports:
+- `@openzeppelin/contracts/access/Ownable.sol`
+- `@openzeppelin/contracts/token/ERC20/ERC20.sol`
+- `@openzeppelin/contracts/security/ReentrancyGuard.sol`
+- `@openzeppelin/contracts/utils/math/SafeMath.sol` (for <0.8.0)
+
+### Forge Standard Library
+
+```bash
+forge install foundry-rs/forge-std
+```
+
+Provides:
+- `forge-std/Test.sol` - Base test contract
+- `forge-std/Script.sol` - Base script contract
+- `forge-std/console.sol` - Console logging for tests
+
+## Environment Setup
+
+1. **Install Foundry**:
+
+   ```bash
+   curl -L https://foundry.paradigm.xyz | bash
+   foundryup
+   ```
+
+2. **Verify Installation**:
+
+   ```bash
+   forge --version
+   cast --version
+   anvil --version
+   ```
+
+3. **Initialize Project**:
+
+   ```bash
+   forge init my-project
+   cd my-project
+   ```
+
+4. **Install Dependencies**:
+
+   ```bash
+   forge install OpenZeppelin/openzeppelin-contracts
+   forge install foundry-rs/forge-std
+   ```
+
+## Development Workflow
+
+### Compile Contracts
+
+```bash
+# Compile all contracts
+forge build
+
+# Compile specific contract
+forge build --contracts src/MyContract.sol
+```
+
+### Run Tests
+
+```bash
+# Run all tests
+forge test
+
+# Run specific test
+forge test --match-test testFunctionName
+
+# Run with gas reporting
+forge test --gas-report
+
+# Run with verbosity
+forge test -vvv
+
+# Run fuzz tests
+forge test --fuzz-runs 1000
+```
+
+### Run Anvil (Local Node)
+
+```bash
+# Start local node
+anvil
+
+# Start with specific accounts
+anvil --accounts 10
+
+# Fork mainnet
+anvil --fork-url https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY
+```
+
+### Deploy Contracts
+
+```bash
+# Deploy using script
+forge script script/Deploy.s.sol --rpc-url <RPC_URL> --broadcast
+
+# Deploy and verify on Etherscan
+forge script script/Deploy.s.sol --rpc-url <RPC_URL> --broadcast --verify
+```
+
+## Type System
+
+Solidity is statically typed. Key requirements:
+
+- All variables must have explicit types
+- Use `memory` for temporary data, `storage` for persistent data
+- Use `calldata` for function parameters (gas efficient)
+- Avoid `storage` in loops when possible
+
+## Modern Solidity Features
+
+### Custom Errors (0.8.4+)
+
+```solidity
+// ✅ GOOD - Gas efficient
+error InsufficientBalance(uint256 required, uint256 available);
+
+function withdraw(uint256 amount) external {
+    if (balance < amount) {
+        revert InsufficientBalance(amount, balance);
+    }
+    // ...
+}
+```
+
+### Unchecked Blocks (0.8.0+)
+
+```solidity
+// ✅ GOOD - Safe overflow handling
+function increment(uint256 x) external pure returns (uint256) {
+    unchecked {
+        return x + 1;  // Safe, won't overflow in practice
+    }
+}
+```
+
+### Immutable Variables
+
+```solidity
+// ✅ GOOD - Gas efficient
+contract MyContract {
+    address public immutable owner;
+    
+    constructor(address _owner) {
+        owner = _owner;
+    }
+}
+```
+
+## Remember
+
+- **Solidity 0.8.20+** - Use modern Solidity features
+- **Foundry** - Use Forge for building, testing, and deployment
+- **Type Safety** - All variables must be explicitly typed
+- **Gas Optimization** - Consider gas costs in design decisions
+- **Security First** - Security is paramount in smart contracts

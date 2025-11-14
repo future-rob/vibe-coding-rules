@@ -1,0 +1,339 @@
+---
+description: Event logging standards and best practices for Solidity smart contracts
+globs:
+  - "**/*.sol"
+alwaysApply: true
+---
+
+# Logging Guidelines
+
+## Philosophy
+
+In Solidity, **events are the primary mechanism for logging**. Events are gas-efficient, provide off-chain visibility, and are essential for indexing and monitoring. Use events for all important state changes and operations.
+
+## ⚠️ IMPORTANT
+
+**Use events for logging, not console.log in production contracts.**
+
+- `console.log` is for testing/debugging only
+- Events are for production logging
+- Events are cheaper than storage for logging
+
+## Event Basics
+
+### Event Declaration
+
+```solidity
+// ✅ GOOD - Well-designed event
+event Transfer(address indexed from, address indexed to, uint256 value);
+
+// ✅ GOOD - Multiple indexed parameters
+event Approval(address indexed owner, address indexed spender, uint256 value);
+
+// ✅ GOOD - Non-indexed parameters for data
+event TokenMinted(address indexed to, uint256 amount, uint256 timestamp);
+```
+
+### Event Emission
+
+```solidity
+// ✅ GOOD - Emit events for important state changes
+function transfer(address to, uint256 amount) external returns (bool) {
+    balances[msg.sender] -= amount;
+    balances[to] += amount;
+    emit Transfer(msg.sender, to, amount);  // Emit event
+    return true;
+}
+```
+
+## When to Emit Events
+
+### ✅ DO Emit Events For
+
+1. **State Changes** - All important state modifications
+2. **Transfers** - Token transfers, ETH transfers
+3. **Approvals** - Token approvals, access grants
+4. **Administrative Actions** - Ownership changes, parameter updates
+5. **User Actions** - Deposits, withdrawals, stakes
+6. **Errors** - Important error conditions (via custom errors, not events)
+
+### ❌ DON'T Emit Events For
+
+1. **View Functions** - Pure read operations
+2. **Internal Operations** - Internal state changes (unless critical)
+3. **Redundant Information** - Information already in other events
+4. **Debugging** - Use console.log in tests, not events
+
+## Event Design
+
+### Indexed Parameters
+
+Use `indexed` for parameters you want to filter by:
+
+```solidity
+// ✅ GOOD - Indexed parameters for filtering
+event Transfer(address indexed from, address indexed to, uint256 value);
+
+// Can filter by: Transfer(from=address, to=address)
+// Cannot efficiently filter by value (not indexed)
+```
+
+**Rules for Indexed Parameters:**
+- Maximum 3 indexed parameters per event
+- Use indexed for addresses, IDs, and frequently queried values
+- Don't index large arrays or strings (gas inefficient)
+
+### Non-Indexed Parameters
+
+Use non-indexed for data that doesn't need filtering:
+
+```solidity
+// ✅ GOOD - Non-indexed for data
+event TokenMinted(
+    address indexed to,        // Indexed - filter by recipient
+    uint256 amount,             // Non-indexed - data
+    uint256 timestamp           // Non-indexed - data
+);
+```
+
+## Event Patterns
+
+### 1. Transfer Events
+
+```solidity
+// ✅ GOOD - Standard transfer event
+event Transfer(address indexed from, address indexed to, uint256 value);
+
+function transfer(address to, uint256 amount) external returns (bool) {
+    balances[msg.sender] -= amount;
+    balances[to] += amount;
+    emit Transfer(msg.sender, to, amount);
+    return true;
+}
+
+function mint(address to, uint256 amount) external {
+    totalSupply += amount;
+    balances[to] += amount;
+    emit Transfer(address(0), to, amount);  // Minting: from = address(0)
+}
+
+function burn(uint256 amount) external {
+    balances[msg.sender] -= amount;
+    totalSupply -= amount;
+    emit Transfer(msg.sender, address(0), amount);  // Burning: to = address(0)
+}
+```
+
+### 2. Approval Events
+
+```solidity
+// ✅ GOOD - Approval event
+event Approval(address indexed owner, address indexed spender, uint256 value);
+
+function approve(address spender, uint256 amount) external returns (bool) {
+    allowances[msg.sender][spender] = amount;
+    emit Approval(msg.sender, spender, amount);
+    return true;
+}
+```
+
+### 3. Administrative Events
+
+```solidity
+// ✅ GOOD - Administrative events
+event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
+event Paused(address account);
+event Unpaused(address account);
+event ParameterUpdated(string parameter, uint256 oldValue, uint256 newValue);
+
+function transferOwnership(address newOwner) external onlyOwner {
+    address oldOwner = owner;
+    owner = newOwner;
+    emit OwnershipTransferred(oldOwner, newOwner);
+}
+
+function pause() external onlyOwner {
+    paused = true;
+    emit Paused(msg.sender);
+}
+```
+
+### 4. User Action Events
+
+```solidity
+// ✅ GOOD - User action events
+event Deposited(address indexed user, uint256 amount, uint256 timestamp);
+event Withdrawn(address indexed user, uint256 amount, uint256 timestamp);
+event Staked(address indexed user, uint256 amount, uint256 lockPeriod);
+
+function deposit() external payable {
+    deposits[msg.sender] += msg.value;
+    emit Deposited(msg.sender, msg.value, block.timestamp);
+}
+
+function withdraw(uint256 amount) external {
+    deposits[msg.sender] -= amount;
+    (bool success, ) = msg.sender.call{value: amount}("");
+    require(success, "Transfer failed");
+    emit Withdrawn(msg.sender, amount, block.timestamp);
+}
+```
+
+## Gas Considerations
+
+### Event Gas Costs
+
+- **LOG0:** 375 gas base
+- **LOG1:** 375 gas base + 375 per topic
+- **LOG2:** 375 gas base + 375 per topic
+- **LOG3:** 375 gas base + 375 per topic
+- **LOG4:** 375 gas base + 375 per topic
+- **Data:** 8 gas per byte
+
+**Example:**
+
+```solidity
+// Event with 2 indexed parameters + data
+event Transfer(address indexed from, address indexed to, uint256 value);
+// Gas cost: ~375 (base) + 375*2 (topics) + 8*32 (data) = ~1,246 gas
+
+// Event with 3 indexed parameters
+event Approval(address indexed owner, address indexed spender, uint256 value);
+// Gas cost: ~375 (base) + 375*3 (topics) = ~1,500 gas
+```
+
+### Optimization Tips
+
+```solidity
+// ✅ GOOD - Efficient event design
+event Transfer(address indexed from, address indexed to, uint256 value);
+// Only indexes what's needed for filtering
+
+// ❌ BAD - Over-indexing
+event Transfer(
+    address indexed from,
+    address indexed to,
+    uint256 indexed value  // Don't index if not needed for filtering
+);
+```
+
+## Event Documentation
+
+### NatSpec for Events
+
+```solidity
+/// @notice Emitted when tokens are transferred
+/// @param from The address tokens are transferred from (address(0) for minting)
+/// @param to The address tokens are transferred to (address(0) for burning)
+/// @param value The amount of tokens transferred
+event Transfer(address indexed from, address indexed to, uint256 value);
+
+/// @notice Emitted when approval is set
+/// @param owner The address that approved the spending
+/// @param spender The address that was approved to spend
+/// @param value The amount of tokens approved
+event Approval(address indexed owner, address indexed spender, uint256 value);
+```
+
+## Best Practices
+
+### 1. Emit Events Before External Calls
+
+```solidity
+// ✅ GOOD - Emit event before external call
+function withdraw(uint256 amount) external {
+    balances[msg.sender] -= amount;
+    emit Withdrawn(msg.sender, amount, block.timestamp);  // Emit first
+    (bool success, ) = msg.sender.call{value: amount}("");  // External call after
+    require(success, "Transfer failed");
+}
+
+// ❌ BAD - Emit event after external call (if call fails, event not emitted)
+function withdraw(uint256 amount) external {
+    balances[msg.sender] -= amount;
+    (bool success, ) = msg.sender.call{value: amount}("");
+    require(success, "Transfer failed");
+    emit Withdrawn(msg.sender, amount, block.timestamp);  // After external call
+}
+```
+
+### 2. Include Relevant Context
+
+```solidity
+// ✅ GOOD - Include relevant context
+event TokenMinted(
+    address indexed to,
+    uint256 amount,
+    uint256 timestamp,
+    address indexed minter
+);
+
+// ❌ BAD - Missing context
+event TokenMinted(address indexed to, uint256 amount);
+```
+
+### 3. Use Consistent Event Names
+
+```solidity
+// ✅ GOOD - Consistent naming
+event Transfer(address indexed from, address indexed to, uint256 value);
+event Approval(address indexed owner, address indexed spender, uint256 value);
+
+// ❌ BAD - Inconsistent naming
+event Transfer(address from, address to, uint256 value);
+event Approve(address owner, address spender, uint256 value);  // Different verb
+```
+
+### 4. Emit Events for All State Changes
+
+```solidity
+// ✅ GOOD - Emit event for state change
+function setFee(uint256 newFee) external onlyOwner {
+    uint256 oldFee = fee;
+    fee = newFee;
+    emit FeeUpdated(oldFee, newFee);
+}
+
+// ❌ BAD - Missing event
+function setFee(uint256 newFee) external onlyOwner {
+    fee = newFee;  // No event emitted
+}
+```
+
+## Console.log (Testing Only)
+
+### Use in Tests
+
+```solidity
+// ✅ GOOD - Console.log in tests
+import "forge-std/console.sol";
+
+contract TokenTest is Test {
+    function test_Transfer() public {
+        Token token = new Token();
+        token.mint(address(this), 100);
+        
+        console.log("Balance before:", token.balanceOf(address(this)));
+        token.transfer(address(1), 50);
+        console.log("Balance after:", token.balanceOf(address(this)));
+    }
+}
+
+// ❌ BAD - Console.log in production contracts
+contract Token {
+    function transfer(address to, uint256 amount) external {
+        console.log("Transferring:", amount);  // Don't use in production
+        // ...
+    }
+}
+```
+
+## Remember
+
+- **Events for Production** - Use events, not console.log
+- **Emit for State Changes** - All important state changes
+- **Indexed Parameters** - Maximum 3, use for filtering
+- **Gas Efficient** - Events are cheaper than storage
+- **Document Events** - NatSpec for all events
+- **Consistent Naming** - Use consistent event names
+- **Include Context** - Provide relevant information in events

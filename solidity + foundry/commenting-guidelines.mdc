@@ -1,0 +1,425 @@
+---
+description: Commenting and documentation standards for Solidity smart contracts using NatSpec
+globs:
+  - "**/*.sol"
+alwaysApply: true
+---
+
+# Commenting Guidelines
+
+## Philosophy
+
+Comments should explain the **"why"** and **"intent"**, not the **"what"**. The code itself should be self-documenting through clear variable names, function names, and structure. Use NatSpec for all public/external interfaces.
+
+## NatSpec Documentation
+
+NatSpec (Natural Language Specification) is the standard for Solidity documentation. Use NatSpec for all public/external functions, contracts, and state variables.
+
+### NatSpec Tags
+
+- `@title` - Contract title
+- `@author` - Author name
+- `@notice` - User-facing description
+- `@dev` - Developer-facing description
+- `@param` - Parameter description
+- `@return` - Return value description
+- `@custom:` - Custom tags
+- `@inheritdoc` - Inherit documentation
+
+## When to Comment
+
+### ✅ DO Comment
+
+1. **Public/External Functions** - All public/external functions must have NatSpec
+2. **Complex Logic** - Non-obvious algorithms or business rules
+3. **Security Considerations** - Security implications and assumptions
+4. **Gas Optimization** - Why a specific optimization was made
+5. **Business Rules** - Domain-specific logic that isn't obvious
+6. **Interfaces** - All interface functions
+7. **Events** - Important events should be documented
+
+### ❌ DON'T Comment
+
+1. **Obvious Code** - Code that is self-explanatory
+2. **Type Duplication** - Don't repeat what types already say
+3. **Implementation Details** - Focus on intent, not how it's done
+4. **Commented-Out Code** - Delete it, don't comment it out
+5. **Version Control Info** - Don't include git history
+
+## Contract Documentation
+
+### Contract-Level NatSpec
+
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+/// @title Token Contract
+/// @author Your Name
+/// @notice ERC20 token implementation with minting and burning capabilities
+/// @dev This contract implements the ERC20 standard with additional features
+contract Token {
+    // ...
+}
+```
+
+### Multi-Line NatSpec
+
+```solidity
+/**
+ * @title Token Contract
+ * @author Your Name
+ * @notice ERC20 token implementation with minting and burning capabilities
+ * @dev This contract implements the ERC20 standard with additional features
+ *      including role-based access control and pausable functionality
+ */
+contract Token {
+    // ...
+}
+```
+
+## Function Documentation
+
+### Public/External Functions
+
+All public/external functions must have NatSpec:
+
+```solidity
+/// @notice Transfers tokens from the caller's account to the specified recipient
+/// @dev This function implements the ERC20 transfer function with additional
+///      checks for paused state and zero address validation
+/// @param to The address to transfer tokens to
+/// @param amount The amount of tokens to transfer
+/// @return success Returns true if the transfer was successful
+/// @custom:security This function is protected by the nonReentrant modifier
+function transfer(address to, uint256 amount) external returns (bool success) {
+    // Implementation
+}
+```
+
+### Internal/Private Functions
+
+Document complex internal/private functions:
+
+```solidity
+/// @dev Internal function to update balances after transfer
+/// @param from The address to transfer from
+/// @param to The address to transfer to
+/// @param amount The amount to transfer
+function _transfer(address from, address to, uint256 amount) internal {
+    // Implementation
+}
+```
+
+### Function Examples
+
+```solidity
+/// @notice Mints new tokens to the specified address
+/// @dev Only callable by addresses with the MINTER_ROLE
+/// @param to The address to mint tokens to
+/// @param amount The amount of tokens to mint
+/// @custom:example
+///     ```solidity
+///     token.mint(0x123..., 1000);
+///     // Mints 1000 tokens to address 0x123...
+///     ```
+function mint(address to, uint256 amount) external onlyRole(MINTER_ROLE) {
+    // Implementation
+}
+```
+
+## Parameter Documentation
+
+### @param Tag
+
+```solidity
+/// @notice Transfers tokens between addresses
+/// @param from The address to transfer tokens from
+/// @param to The address to transfer tokens to
+/// @param amount The amount of tokens to transfer (must be > 0)
+function transferFrom(address from, address to, uint256 amount) external {
+    // Implementation
+}
+```
+
+### Multiple Parameters
+
+```solidity
+/// @notice Approves spender to transfer tokens on behalf of owner
+/// @param owner The address that owns the tokens
+/// @param spender The address that will be approved to spend tokens
+/// @param amount The amount of tokens to approve (use type(uint256).max for unlimited)
+/// @return success Returns true if approval was successful
+function approve(address owner, address spender, uint256 amount) external returns (bool success) {
+    // Implementation
+}
+```
+
+## Return Value Documentation
+
+### @return Tag
+
+```solidity
+/// @notice Gets the balance of the specified address
+/// @param account The address to query the balance for
+/// @return balance The balance of the specified address
+function balanceOf(address account) external view returns (uint256 balance) {
+    return balances[account];
+}
+```
+
+### Multiple Return Values
+
+```solidity
+/// @notice Gets token information
+/// @return name The name of the token
+/// @return symbol The symbol of the token
+/// @return decimals The number of decimals
+/// @return totalSupply The total supply of tokens
+function getTokenInfo() external view returns (
+    string memory name,
+    string memory symbol,
+    uint8 decimals,
+    uint256 totalSupply
+) {
+    return (name(), symbol(), decimals(), totalSupply());
+}
+```
+
+## Event Documentation
+
+### Event NatSpec
+
+```solidity
+/// @notice Emitted when tokens are transferred
+/// @param from The address tokens are transferred from (address(0) for minting)
+/// @param to The address tokens are transferred to (address(0) for burning)
+/// @param value The amount of tokens transferred
+event Transfer(address indexed from, address indexed to, uint256 value);
+
+/// @notice Emitted when approval is set
+/// @param owner The address that approved the spending
+/// @param spender The address that was approved to spend
+/// @param value The amount of tokens approved
+event Approval(address indexed owner, address indexed spender, uint256 value);
+```
+
+## Error Documentation
+
+### Custom Error Documentation
+
+```solidity
+/// @notice Thrown when transfer amount exceeds available balance
+/// @param required The amount required for the operation
+/// @param available The amount currently available
+error InsufficientBalance(uint256 required, uint256 available);
+
+/// @notice Thrown when an unauthorized address attempts an operation
+/// @param account The address that attempted the unauthorized operation
+error Unauthorized(address account);
+```
+
+## State Variable Documentation
+
+### Public State Variables
+
+```solidity
+/// @notice The total supply of tokens
+/// @dev This value is updated when tokens are minted or burned
+uint256 public totalSupply;
+
+/// @notice Mapping of account balances
+/// @dev Maps account address to their token balance
+mapping(address => uint256) public balances;
+
+/// @notice The owner of the contract
+/// @dev Set in constructor and can be transferred via transferOwnership
+address public immutable owner;
+```
+
+## Inline Comments
+
+### When to Use Inline Comments
+
+```solidity
+// ✅ GOOD - Explains why, not what
+// Use unchecked here because i < length, so i++ cannot overflow
+unchecked {
+    i++;
+}
+
+// ✅ GOOD - Explains security consideration
+// Check-effects-interactions pattern: update state before external call
+balances[msg.sender] -= amount;
+balances[to] += amount;
+(bool success, ) = to.call{value: amount}("");
+
+// ✅ GOOD - Explains business rule
+// Users created before 2020 are grandfathered into old fee structure
+if (userTimestamp < 1577836800) {  // Jan 1, 2020
+    fee = 0;
+}
+
+// ✅ GOOD - Explains gas optimization
+// Cache storage read to avoid multiple SLOAD operations in loop
+uint256 cachedBalance = balances[msg.sender];
+
+// ❌ BAD - Obvious comment
+// Increment counter
+counter++;
+
+// ❌ BAD - Commented-out code
+// function oldFunction() external {
+//     // old implementation
+// }
+```
+
+## Modifier Documentation
+
+### Modifier NatSpec
+
+```solidity
+/// @notice Modifier that restricts function access to the contract owner
+/// @dev Reverts with Unauthorized error if caller is not the owner
+modifier onlyOwner() {
+    if (msg.sender != owner) {
+        revert Unauthorized(msg.sender);
+    }
+    _;
+}
+
+/// @notice Modifier that prevents reentrancy attacks
+/// @dev Uses a lock flag to prevent recursive calls
+modifier nonReentrant() {
+    require(!locked, "Reentrant call");
+    locked = true;
+    _;
+    locked = false;
+}
+```
+
+## Library Documentation
+
+### Library NatSpec
+
+```solidity
+/// @title Math Library
+/// @notice Library for mathematical operations
+/// @dev Provides safe arithmetic operations
+library Math {
+    /// @notice Returns the maximum of two numbers
+    /// @param a First number
+    /// @param b Second number
+    /// @return The maximum of a and b
+    function max(uint256 a, uint256 b) internal pure returns (uint256) {
+        return a > b ? a : b;
+    }
+}
+```
+
+## Interface Documentation
+
+### Interface NatSpec
+
+```solidity
+/// @title ERC20 Token Interface
+/// @notice Standard interface for ERC20 tokens
+interface IERC20 {
+    /// @notice Returns the total supply of tokens
+    /// @return The total supply
+    function totalSupply() external view returns (uint256);
+    
+    /// @notice Returns the balance of an account
+    /// @param account The address to query
+    /// @return The balance of the account
+    function balanceOf(address account) external view returns (uint256);
+    
+    /// @notice Transfers tokens to a recipient
+    /// @param to The recipient address
+    /// @param amount The amount to transfer
+    /// @return success True if transfer was successful
+    function transfer(address to, uint256 amount) external returns (bool success);
+}
+```
+
+## Security Documentation
+
+### Security Considerations
+
+```solidity
+/// @notice Withdraws tokens from the contract
+/// @dev Implements checks-effects-interactions pattern to prevent reentrancy
+/// @param amount The amount to withdraw
+/// @custom:security This function is protected by nonReentrant modifier
+/// @custom:security Uses checks-effects-interactions pattern
+function withdraw(uint256 amount) external nonReentrant {
+    // Checks
+    require(balances[msg.sender] >= amount, "Insufficient balance");
+    
+    // Effects
+    balances[msg.sender] -= amount;
+    
+    // Interactions
+    (bool success, ) = msg.sender.call{value: amount}("");
+    require(success, "Transfer failed");
+}
+```
+
+## Best Practices
+
+### 1. Be Concise but Complete
+
+```solidity
+// ✅ GOOD - Concise but complete
+/// @notice Transfers tokens to recipient
+/// @param to Recipient address
+/// @param amount Amount to transfer
+function transfer(address to, uint256 amount) external {
+    // ...
+}
+
+// ❌ BAD - Too verbose
+/// @notice This function transfers tokens from the caller's account to the
+///         specified recipient address. It checks that the caller has
+///         sufficient balance and that the recipient is not the zero address.
+///         It then updates the balances and emits a Transfer event.
+/// @param to This is the address that will receive the tokens
+/// @param amount This is the number of tokens to transfer
+function transfer(address to, uint256 amount) external {
+    // ...
+}
+```
+
+### 2. Use @dev for Implementation Details
+
+```solidity
+/// @notice Gets user balance
+/// @dev This function reads from storage, consider caching in loops
+/// @param user The user address
+/// @return The user's balance
+function getBalance(address user) external view returns (uint256) {
+    return balances[user];
+}
+```
+
+### 3. Document Edge Cases
+
+```solidity
+/// @notice Transfers tokens to recipient
+/// @param to Recipient address (must not be zero address)
+/// @param amount Amount to transfer (must be > 0)
+/// @dev Reverts if recipient is zero address or amount is zero
+function transfer(address to, uint256 amount) external {
+    // ...
+}
+```
+
+## Remember
+
+- **NatSpec Required** - All public/external functions must have NatSpec
+- **Explain Why** - Focus on intent, not implementation
+- **Be Concise** - Don't repeat what code already says
+- **Security Notes** - Document security considerations
+- **Examples** - Include examples for complex functions
+- **Keep Updated** - Update docs when code changes
+- **No Commented Code** - Delete, don't comment out

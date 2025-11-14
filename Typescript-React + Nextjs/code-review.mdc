@@ -1,0 +1,286 @@
+---
+description: Code review checklist and best practices for maintaining code quality
+globs:
+  - "**/.github/**"
+  - "**/pull_request_template.md"
+alwaysApply: true
+---
+
+# Code Review Guidelines
+
+## Purpose
+
+Code reviews ensure:
+- **Code Quality**: Maintains standards and best practices
+- **Knowledge Sharing**: Team members learn from each other
+- **Bug Prevention**: Catch issues before they reach production
+- **Consistency**: Uniform codebase across the project
+
+## Review Checklist
+
+### Functionality
+
+- [ ] Code works as intended and meets requirements
+- [ ] Edge cases are handled appropriately
+- [ ] Error handling is implemented correctly
+- [ ] No obvious bugs or logic errors
+
+### Code Quality
+
+- [ ] Follows all style guidelines (`styling-guidelines.mdc`)
+- [ ] No lint errors (see `no-hiding.mdc`)
+- [ ] TypeScript types are properly defined (no `any` types)
+- [ ] Code is readable and maintainable
+- [ ] Variable names are descriptive (no abbreviations)
+
+### Architecture
+
+- [ ] Follows architectural patterns (`key-architecture-patterns.mdc`)
+- [ ] Business logic is in services, not API routes
+- [ ] Proper separation of concerns
+- [ ] No unnecessary dependencies or complexity
+
+### Testing
+
+- [ ] Service layer has tests (100% coverage required)
+- [ ] HOFs have tests (100% coverage required)
+- [ ] Edge cases are tested
+- [ ] Tests are meaningful and test behavior, not implementation
+
+### Security
+
+- [ ] No sensitive data exposed in errors or logs
+- [ ] Authentication/authorization properly implemented
+- [ ] Input validation is present
+- [ ] No SQL injection or XSS vulnerabilities
+
+### Performance
+
+- [ ] No unnecessary re-renders (React components)
+- [ ] Proper use of `useMemo`, `useCallback`, `React.memo`
+- [ ] Efficient data fetching patterns
+- [ ] Bundle size considerations
+
+### Documentation
+
+- [ ] JSDoc comments for public APIs
+- [ ] Complex logic is explained
+- [ ] README updated if needed
+- [ ] Comments explain "why", not "what"
+
+## Review Process
+
+### For Authors
+
+**Before Requesting Review:**
+
+1. **Self-Review**
+   - Review your own code first
+   - Run linter and fix all errors
+   - Ensure tests pass
+   - Check that you've followed all guidelines
+
+2. **Prepare PR**
+   - Write clear PR title and description
+   - Link related issues
+   - Add screenshots for UI changes
+   - Keep PR size reasonable (< 400 lines ideally)
+
+3. **Request Review**
+   - Tag appropriate reviewers
+   - Provide context if needed
+   - Be available for questions
+
+**During Review:**
+
+- Be open to feedback
+- Ask questions if feedback is unclear
+- Discuss trade-offs if you disagree
+- Make requested changes promptly
+
+### For Reviewers
+
+**Review Approach:**
+
+1. **Understand Context**
+   - Read the PR description
+   - Understand the requirements
+   - Check related issues
+
+2. **Review Code**
+   - Start with high-level architecture
+   - Check for bugs and edge cases
+   - Verify adherence to guidelines
+   - Look for security issues
+
+3. **Provide Feedback**
+   - Be constructive and respectful
+   - Explain the "why" behind suggestions
+   - Prioritize important issues
+   - Approve when satisfied
+
+**Feedback Guidelines:**
+
+- ✅ **Be Specific**: Point to exact lines and explain issues
+- ✅ **Be Constructive**: Suggest improvements, not just problems
+- ✅ **Be Respectful**: Remember the author is a person
+- ✅ **Be Timely**: Respond within 24 hours if possible
+- ❌ **Don't Nitpick**: Focus on important issues
+- ❌ **Don't Be Vague**: "This could be better" isn't helpful
+- ❌ **Don't Block on Style**: Use automated tools for style
+
+## Common Review Comments
+
+### Architecture Issues
+
+```typescript
+// ❌ Business logic in API route
+export default async function handler(req, res) {
+  const processed = data.map(item => transform(item));
+  // ...
+}
+
+// ✅ Business logic in service
+export default async function handler(req, res) {
+  const processed = await processData(data);
+  // ...
+}
+```
+
+### Type Safety
+
+```typescript
+// ❌ Using 'any'
+function process(data: any) { }
+
+// ✅ Proper types
+function process<T extends ProcessableData>(data: T) { }
+```
+
+### Error Handling
+
+```typescript
+// ❌ Silent failure
+try {
+  await operation();
+} catch (error) {
+  // Ignored
+}
+
+// ✅ Proper error handling
+try {
+  await operation();
+} catch (error) {
+  logger.error('Operation failed', { error });
+  throw new ApplicationError('Operation failed', 500);
+}
+```
+
+### Performance
+
+```typescript
+// ❌ Unnecessary re-renders
+function Component() {
+  const store = useStore();
+  return <div>{store.user.name}</div>;
+}
+
+// ✅ Selective subscription
+function Component() {
+  const userName = useStore(state => state.user.name);
+  return <div>{userName}</div>;
+}
+```
+
+## Review Response Types
+
+### Approve ✅
+
+Use when:
+- Code meets all standards
+- No blocking issues
+- Ready to merge
+
+### Request Changes 🔄
+
+Use when:
+- Critical issues need fixing
+- Security concerns
+- Architecture problems
+- Missing tests
+
+### Comment 💬
+
+Use when:
+- Suggestions for improvement
+- Questions about implementation
+- Non-blocking concerns
+- Future improvements
+
+## Conflict Resolution
+
+### When Disagreement Occurs
+
+1. **Discuss**: Have a conversation about the trade-offs
+2. **Reference Guidelines**: Point to specific rules or patterns
+3. **Seek Consensus**: Involve team lead if needed
+4. **Document Decision**: Update guidelines if pattern emerges
+
+### Escalation
+
+If you can't reach agreement:
+- Discuss with team lead
+- Review project guidelines together
+- Update guidelines if needed
+- Make decision and move forward
+
+## Automated Checks
+
+Before requesting review, ensure:
+
+- [ ] All tests pass
+- [ ] No lint errors
+- [ ] TypeScript compiles without errors
+- [ ] Build succeeds
+- [ ] No security vulnerabilities
+
+## Review Best Practices
+
+### DO
+
+- Review promptly (within 24 hours)
+- Focus on important issues first
+- Explain your reasoning
+- Be open to discussion
+- Approve when satisfied
+
+### DON'T
+
+- Block on personal preferences
+- Request changes for minor style issues
+- Be dismissive of questions
+- Approve without reviewing
+- Make changes directly (unless agreed)
+
+## Remember
+
+- **Code review is a conversation**, not a gate
+- **Everyone makes mistakes** - be kind
+- **Learning opportunity** for both author and reviewer
+- **Quality over speed** - but don't block unnecessarily
+- **Consistency matters** - follow the guidelines
+
+## Quick Reference
+
+**Must Fix Before Merge:**
+- Lint errors
+- TypeScript errors
+- Failing tests
+- Security issues
+- Architecture violations
+
+**Nice to Have:**
+- Code style improvements
+- Performance optimizations
+- Additional tests
+- Documentation updates

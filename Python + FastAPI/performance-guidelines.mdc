@@ -1,0 +1,460 @@
+---
+description: Performance optimization guidelines for Python FastAPI applications
+globs:
+  - "**/*.py"
+alwaysApply: true
+---
+
+# Performance Guidelines
+
+## Philosophy
+
+Performance directly impacts user experience and business metrics. Our optimization strategy focuses on:
+1. **Measure First** - Never optimize without data
+2. **Async First** - Use async/await for all I/O operations
+3. **Database Optimization** - Efficient queries and connection pooling
+4. **Caching Strategy** - Cache appropriately, invalidate properly
+5. **Resource Management** - Proper connection and resource handling
+
+## Async Best Practices
+
+### 1. Use Async for All I/O Operations
+
+```python
+# ❌ BAD - Blocking I/O
+def fetch_user_data(user_id: int) -> dict:
+    response = requests.get(f"https://api.example.com/users/{user_id}")  # Blocking
+    return response.json()
+
+# ✅ GOOD - Async I/O
+async def fetch_user_data(user_id: int) -> dict:
+    async with httpx.AsyncClient() as client:
+        response = await client.get(f"https://api.example.com/users/{user_id}")
+        return response.json()
+```
+
+### 2. Parallel Operations
+
+```python
+# ❌ BAD - Sequential operations
+async def get_user_data(user_id: int) -> dict:
+    user = await get_user(user_id)
+    posts = await get_user_posts(user_id)
+    comments = await get_user_comments(user_id)
+    return {"user": user, "posts": posts, "comments": comments}
+
+# ✅ GOOD - Parallel operations
+async def get_user_data(user_id: int) -> dict:
+    user, posts, comments = await asyncio.gather(
+        get_user(user_id),
+        get_user_posts(user_id),
+        get_user_comments(user_id),
+    )
+    return {"user": user, "posts": posts, "comments": comments}
+```
+
+### 3. Proper Async Context Managers
+
+```python
+# ❌ BAD - Not using context managers
+async def process_data():
+    client = httpx.AsyncClient()
+    response = await client.get("https://api.example.com/data")
+    # Connection not properly closed
+
+# ✅ GOOD - Using context managers
+async def process_data():
+    async with httpx.AsyncClient() as client:
+        response = await client.get("https://api.example.com/data")
+        return response.json()
+    # Connection automatically closed
+```
+
+## Database Optimization
+
+### 1. Connection Pooling
+
+```python
+# app/core/database.py
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+
+engine = create_async_engine(
+    settings.DATABASE_URL,
+    pool_size=20,  # Number of connections to maintain
+    max_overflow=10,  # Additional connections beyond pool_size
+    pool_pre_ping=True,  # Verify connections before using
+    pool_recycle=3600,  # Recycle connections after 1 hour
+)
+```
+
+### 2. Query Optimization
+
+```python
+# ❌ BAD - N+1 query problem
+async def get_users_with_posts():
+    users = await session.execute(select(User))
+    result = []
+    for user in users.scalars():
+        posts = await session.execute(
+            select(Post).where(Post.user_id == user.id)
+        )
+        result.append({"user": user, "posts": posts.scalars().all()})
+
+# ✅ GOOD - Eager loading
+from sqlalchemy.orm import selectinload
+
+async def get_users_with_posts():
+    result = await session.execute(
+        select(User)
+        .options(selectinload(User.posts))
+    )
+    users = result.scalars().all()
+    return [{"user": user, "posts": user.posts} for user in users]
+```
+
+### 3. Batch Operations
+
+```python
+# ❌ BAD - Individual inserts
+async def create_users(user_data_list: List[dict]):
+    for user_data in user_data_list:
+        user = User(**user_data)
+        session.add(user)
+        await session.commit()  # One commit per user
+
+# ✅ GOOD - Batch insert
+async def create_users(user_data_list: List[dict]):
+    users = [User(**user_data) for user_data in user_data_list]
+    session.add_all(users)
+    await session.commit()  # Single commit for all
+```
+
+### 4. Index Usage
+
+```python
+# app/models/database/user.py
+from sqlalchemy import Column, Integer, String, Index
+
+class User(Base):
+    __tablename__ = "users"
+    
+    id = Column(Integer, primary_key=True)
+    email = Column(String, unique=True, index=True)  # Indexed for fast lookups
+    status = Column(String)
+    
+    # Composite index for common queries
+    __table_args__ = (
+        Index("idx_user_status_email", "status", "email"),
+    )
+```
+
+## Caching Strategies
+
+### 1. Function Result Caching
+
+```python
+# app/utils/cache.py
+from functools import lru_cache
+from typing import Callable, TypeVar
+import json
+from datetime import datetime, timedelta
+
+T = TypeVar("T")
+
+
+def cache_result(ttl: int = 300):
+    """Cache function result with TTL."""
+    def decorator(func: Callable[..., T]) -> Callable[..., T]:
+        cache: dict = {}
+        
+        async def wrapper(*args, **kwargs) -> T:
+            cache_key = f"{func.__name__}:{args}:{kwargs}"
+            
+            if cache_key in cache:
+                value, expiry = cache[cache_key]
+                if datetime.utcnow() < expiry:
+                    return value
+            
+            result = await func(*args, **kwargs)
+            cache[cache_key] = (
+                result,
+                datetime.utcnow() + timedelta(seconds=ttl)
+            )
+            return result
+        
+        return wrapper
+    return decorator
+
+# Usage
+@cache_result(ttl=600)
+async def get_user_profile(user_id: int) -> User:
+    """Get user profile with 10-minute cache."""
+    return await user_repository.get_by_id(user_id)
+```
+
+### 2. Redis Caching
+
+```python
+# app/core/cache.py
+from redis import asyncio as aioredis
+import json
+from typing import Optional, TypeVar
+
+T = TypeVar("T")
+
+
+class CacheService:
+    """Redis-based cache service."""
+    
+    def __init__(self, redis_client: aioredis.Redis):
+        self.redis = redis_client
+    
+    async def get(self, key: str) -> Optional[dict]:
+        """Get value from cache."""
+        value = await self.redis.get(key)
+        if value:
+            return json.loads(value)
+        return None
+    
+    async def set(self, key: str, value: dict, ttl: int = 300) -> None:
+        """Set value in cache with TTL."""
+        await self.redis.setex(
+            key,
+            ttl,
+            json.dumps(value)
+        )
+    
+    async def delete(self, key: str) -> None:
+        """Delete value from cache."""
+        await self.redis.delete(key)
+
+# Usage in service
+class UserService:
+    def __init__(self, db: AsyncSession, cache: CacheService):
+        self.db = db
+        self.cache = cache
+    
+    async def get_user_by_id(self, user_id: int) -> User:
+        """Get user with caching."""
+        cache_key = f"user:{user_id}"
+        
+        # Try cache first
+        cached = await self.cache.get(cache_key)
+        if cached:
+            return User(**cached)
+        
+        # Fetch from database
+        user = await self.repository.get_by_id(user_id)
+        
+        # Cache result
+        if user:
+            await self.cache.set(
+                cache_key,
+                user.model_dump(),
+                ttl=600
+            )
+        
+        return user
+```
+
+## Background Tasks
+
+### 1. Offload Heavy Operations
+
+```python
+# app/tasks/email_tasks.py
+from app.core.celery_app import celery_app
+
+@celery_app.task(name="send_email")
+def send_email_task(email_to: str, subject: str, body: str) -> None:
+    """Send email in background."""
+    # Heavy email sending logic
+    send_email(email_to, subject, body)
+
+# Usage in API route
+@router.post("/users/{user_id}/notify")
+async def notify_user(user_id: int):
+    """Notify user via email."""
+    user = await user_service.get_user_by_id(user_id)
+    
+    # Offload to background task
+    send_email_task.delay(
+        email_to=user.email,
+        subject="Welcome!",
+        body="Welcome to our platform!"
+    )
+    
+    return {"status": "notification_queued"}
+```
+
+### 2. Batch Processing
+
+```python
+# app/tasks/batch_tasks.py
+@celery_app.task(name="process_batch")
+def process_batch_task(item_ids: List[int]) -> None:
+    """Process items in batch."""
+    for item_id in item_ids:
+        process_item(item_id)
+
+# Chunk large batches
+def process_large_batch(item_ids: List[int], chunk_size: int = 100) -> None:
+    """Process large batch in chunks."""
+    for i in range(0, len(item_ids), chunk_size):
+        chunk = item_ids[i:i + chunk_size]
+        process_batch_task.delay(chunk)
+```
+
+## Response Optimization
+
+### 1. Response Streaming
+
+```python
+from fastapi.responses import StreamingResponse
+import json
+
+@router.get("/users/export")
+async def export_users():
+    """Stream large user export."""
+    async def generate():
+        async for user in user_repository.get_all():
+            yield json.dumps(user.model_dump()) + "\n"
+    
+    return StreamingResponse(
+        generate(),
+        media_type="application/jsonl"
+    )
+```
+
+### 2. Pagination
+
+```python
+# app/schemas/pagination.py
+from pydantic import BaseModel
+from typing import Generic, TypeVar, List
+
+T = TypeVar("T")
+
+
+class PaginatedResponse(BaseModel, Generic[T]):
+    """Paginated response model."""
+    items: List[T]
+    total: int
+    page: int
+    page_size: int
+    pages: int
+
+# Usage
+@router.get("/users", response_model=PaginatedResponse[UserResponse])
+async def get_users(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+):
+    """Get paginated users."""
+    offset = (page - 1) * page_size
+    
+    users, total = await asyncio.gather(
+        user_repository.get_paginated(offset, page_size),
+        user_repository.count(),
+    )
+    
+    return PaginatedResponse(
+        items=[UserResponse.from_orm(u) for u in users],
+        total=total,
+        page=page,
+        page_size=page_size,
+        pages=(total + page_size - 1) // page_size,
+    )
+```
+
+## Performance Monitoring
+
+### 1. Request Timing Middleware
+
+```python
+# app/core/middleware.py
+import time
+from fastapi import Request
+from starlette.middleware.base import BaseHTTPMiddleware
+
+class TimingMiddleware(BaseHTTPMiddleware):
+    """Middleware to track request timing."""
+    
+    async def dispatch(self, request: Request, call_next):
+        start_time = time.time()
+        response = await call_next(request)
+        duration = time.time() - start_time
+        
+        # Log slow requests
+        if duration > 1.0:
+            logger.warning(
+                "Slow request detected",
+                extra={
+                    "path": request.url.path,
+                    "method": request.method,
+                    "duration": duration,
+                }
+            )
+        
+        response.headers["X-Process-Time"] = str(duration)
+        return response
+```
+
+### 2. Database Query Logging
+
+```python
+# Enable SQLAlchemy query logging in development
+engine = create_async_engine(
+    settings.DATABASE_URL,
+    echo=settings.DEBUG,  # Log queries in debug mode
+)
+```
+
+## Best Practices Checklist
+
+### Before Deploy
+- [ ] All I/O operations use async/await
+- [ ] Database queries are optimized (no N+1 problems)
+- [ ] Appropriate indexes are in place
+- [ ] Heavy operations are offloaded to background tasks
+- [ ] Caching is implemented for frequently accessed data
+- [ ] Connection pooling is properly configured
+- [ ] Response pagination is implemented for large datasets
+
+### Monitoring
+- [ ] Request timing is tracked
+- [ ] Slow queries are logged
+- [ ] Database connection pool metrics are monitored
+- [ ] Cache hit rates are tracked
+- [ ] Background task queue depth is monitored
+
+## Anti-Patterns to Avoid
+
+```python
+# ❌ Blocking I/O in async functions
+async def fetch_data():
+    response = requests.get("https://api.example.com")  # Blocking
+
+# ❌ N+1 query problems
+for user in users:
+    posts = await get_posts(user.id)  # One query per user
+
+# ❌ Loading entire dataset
+all_users = await session.execute(select(User))  # Loads all users
+
+# ❌ No connection pooling
+engine = create_async_engine(url, pool_size=1)  # Too small
+
+# ❌ Synchronous operations in async context
+def process_data():
+    time.sleep(5)  # Blocking sleep
+```
+
+## Remember
+
+- **Measure before optimizing** - Use profiling tools
+- **Async first** - All I/O should be async
+- **Database optimization** - Efficient queries and proper indexing
+- **Cache appropriately** - Don't cache everything, cache smartly
+- **Background tasks** - Offload heavy operations
+- **Monitor performance** - Track metrics and set up alerts

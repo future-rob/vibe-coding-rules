@@ -1,0 +1,259 @@
+---
+description: Critical rule - never hide linter errors or type checker warnings
+globs:
+  - "**/*.py"
+alwaysApply: true
+---
+
+# No Hiding Rule
+
+## Critical Rule
+
+**NEVER hide linter errors, type checker warnings, or any code quality issues.**
+
+All lint errors, type checker warnings, and code quality issues **MUST** be fully resolved. Never suppress, ignore, or bypass them.
+
+## What This Means
+
+### ❌ NEVER Do This
+
+```python
+# ❌ BAD - Suppressing type checker errors
+# type: ignore
+def function_with_error():
+    pass
+
+# ❌ BAD - Ignoring linter warnings
+# noqa: F401
+from unused_module import something
+
+# ❌ BAD - Disabling specific checks
+# pylint: disable=unused-argument
+def function(arg):  # arg is unused
+    pass
+
+# ❌ BAD - Using Any to bypass type checking
+from typing import Any
+
+def process_data(data: Any) -> Any:  # Too permissive
+    pass
+
+# ❌ BAD - Commenting out problematic code
+# This code has errors but we'll fix it later
+# def broken_function():
+#     return undefined_variable
+```
+
+### ✅ ALWAYS Do This
+
+```python
+# ✅ GOOD - Fix the actual issue
+def function_with_error() -> None:
+    """Properly typed function."""
+    pass
+
+# ✅ GOOD - Remove unused imports
+# Just delete the import if it's not used
+
+# ✅ GOOD - Fix unused arguments
+def function(arg: str) -> None:
+    """Use the argument or remove it."""
+    print(arg)  # Actually use it
+
+# ✅ GOOD - Use proper types
+from app.schemas.user import UserCreate, UserResponse
+
+def process_data(data: UserCreate) -> UserResponse:
+    """Properly typed function."""
+    pass
+
+# ✅ GOOD - Fix broken code immediately
+def fixed_function() -> str:
+    """Fixed function."""
+    return "proper_value"
+```
+
+## Tools We Use
+
+### 1. Ruff (Linter)
+
+**Configuration:** `pyproject.toml`
+
+```toml
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "A", "C4", "DTZ", "T10", "EM", "ISC", "ICN", "PIE", "T20", "PYI", "PT", "Q", "RSE", "RET", "SIM", "TID", "TCH", "INT", "ARG", "PTH", "ERA", "PD", "PGH", "PL", "TRY", "NPY", "RUF"]
+ignore = []
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
+```
+
+**Never ignore errors:**
+
+```python
+# ❌ BAD
+import something  # noqa: F401
+
+# ✅ GOOD - Fix the import or remove it
+from module import something  # Actually use it
+```
+
+### 2. Mypy (Type Checker)
+
+**Configuration:** `pyproject.toml`
+
+```toml
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true
+```
+
+**Never suppress type errors:**
+
+```python
+# ❌ BAD
+def function() -> None:  # type: ignore
+    pass
+
+# ✅ GOOD - Fix the type issue
+def function() -> None:
+    """Properly typed."""
+    pass
+```
+
+### 3. Black (Formatter)
+
+**Never skip formatting:**
+
+```python
+# ❌ BAD
+# fmt: off
+badly_formatted_code = {
+    "key": "value"
+}
+# fmt: on
+
+# ✅ GOOD - Let Black format it
+well_formatted_code = {"key": "value"}
+```
+
+## Common Scenarios
+
+### Unused Imports
+
+```python
+# ❌ BAD
+from app.models.user import User  # noqa: F401
+
+# ✅ GOOD - Remove if unused, or use it
+from app.models.user import User
+
+def process_user(user: User) -> None:
+    pass
+```
+
+### Unused Variables
+
+```python
+# ❌ BAD
+def process_data(data: List[str]) -> None:
+    for item in data:  # item is unused
+        pass
+
+# ✅ GOOD - Use the variable or use underscore
+def process_data(data: List[str]) -> None:
+    for _item in data:  # Use underscore for intentionally unused
+        do_something()
+
+# ✅ BETTER - Actually use it
+def process_data(data: List[str]) -> None:
+    for item in data:
+        process_item(item)
+```
+
+### Type Errors
+
+```python
+# ❌ BAD
+def get_user(user_id: int) -> dict:  # Too generic
+    return {"id": user_id}
+
+# ✅ GOOD - Use proper types
+from app.schemas.user import UserResponse
+
+def get_user(user_id: int) -> UserResponse:
+    return UserResponse(id=user_id, name="John")
+```
+
+### Missing Type Hints
+
+```python
+# ❌ BAD
+def process_data(data):  # No type hints
+    return data
+
+# ✅ GOOD - Add type hints
+from typing import Dict, Any
+
+def process_data(data: Dict[str, Any]) -> Dict[str, Any]:
+    return data
+```
+
+## Pre-commit Hooks
+
+Ensure pre-commit hooks run and **fail** if there are errors:
+
+```yaml
+# .pre-commit-config.yaml
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.0.292
+    hooks:
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]  # Fail on errors
+  
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.5.1
+    hooks:
+      - id: mypy
+        args: [--strict]  # Strict mode, fail on errors
+```
+
+## CI/CD Integration
+
+**Never allow errors in CI:**
+
+```yaml
+# .github/workflows/ci.yml
+- name: Run linters
+  run: |
+    ruff check .
+    mypy app/
+    black --check .
+  # These should fail the build if there are errors
+```
+
+## Remember
+
+- **Fix, Don't Suppress** - Always fix the underlying issue
+- **No Type Ignores** - Never use `# type: ignore` without fixing
+- **No Linter Ignores** - Never use `# noqa` without fixing
+- **Strict Mode** - Use strict type checking
+- **Pre-commit** - Let hooks catch errors before commit
+- **CI/CD** - Fail builds on lint/type errors
+- **Code Quality** - Maintain high standards always

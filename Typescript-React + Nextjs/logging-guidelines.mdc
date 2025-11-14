@@ -1,0 +1,168 @@
+---
+description: Logging standards for server-side and client-side code with emphasis on minimal logging by default
+globs:
+  - "**/*.ts"
+  - "**/*.tsx"
+alwaysApply: true
+---
+
+# Logging Guidelines
+
+## Introduction
+
+### ⚠️ CRITICAL DEFAULT BEHAVIOR
+
+**BY DEFAULT: DO NOT ADD LOGS TO YOUR CODE**
+
+**Only add logging when:**
+1. Explicitly requested by the user/stakeholder
+2. Debugging a specific issue (temporary, remove after resolution)
+3. Required for production monitoring (errors, critical operations)
+
+**Default behavior when writing code:**
+- ✅ Write code without logging statements
+- ✅ Focus on proper error handling instead of logging
+- ✅ Use TypeScript types and error boundaries for debugging
+- ❌ Do NOT add `logger.info()`, `logger.debug()`, or `console.log()` by default
+- ❌ Do NOT add logging "just in case" or for future debugging
+
+**When logging IS needed (after explicit request):**
+Follow all guidelines below for proper logging implementation.
+
+---
+
+This document outlines the mandatory rules and best practices for implementing logging within the Next.js application using the configured logging system. Adherence to these guidelines is crucial for maintaining consistent, informative, and manageable logs across both server-side and client-side code.
+
+The primary goals are:
+
+1.  **Consistency:** Ensure logs follow a standard format and approach.
+2.  **Context:** Provide sufficient context within logs for effective debugging.
+3.  **Performance:** Avoid negatively impacting application performance, especially with client-side logging.
+4.  **Security:** Prevent logging sensitive information.
+5.  **Manageability:** Structure logs appropriately for different environments and potential aggregation tools.
+
+## General Logging Principles
+
+- **Context is Key:** Always include relevant context in your log messages. Use the provided logger factory functions (`getServerLogger`, `getClientLogger`) to automatically include module/component context. Manually add other relevant IDs (e.g., `userId`, `requestId`, `workflowId`, `tweetId`) where applicable.
+- **Appropriate Levels:** Use the correct log level (`error`, `warn`, `info`, `debug`) based on the severity and purpose of the message. See the "Log Levels" section below for specific guidance.
+- **Be Descriptive:** Log messages should clearly explain the event or state being logged.
+- **Avoid Sensitive Data:** **NEVER** log passwords, API keys, full access tokens, personally identifiable information (PII), or other sensitive credentials. Mask or omit this data.
+- **Structured Data (Server):** When logging on the server, provide additional context as a metadata object (the second argument to logger methods). This aids machine parsing, even though the default console output is formatted text.
+- **Error Objects:** When logging errors, log the `Error` object itself to capture stack traces (e.g., `logger.error('Operation failed', { error: err });`).
+
+## Server-Side Logging (`getServerLogger`)
+
+**When to Use:**
+
+- API Routes (`src/pages/api/`)
+- Route Handlers (App Router)
+- Server Components (App Router)
+- `getServerSideProps` (Pages Router)
+- Server Actions (App Router)
+- Middleware
+
+**How to Use:**
+
+1.  **Import:** Import the factory function:
+    ```typescript
+    import { getServerLogger } from "@/utils/logger";
+    ```
+2.  **Instantiate:** Create a logger instance at the top of the module, providing a descriptive `moduleName`:
+    ```typescript
+    const logger = getServerLogger("API:/api/users/getUser"); // Example: API Route
+    // const logger = getServerLogger('Component:UserProfileServer'); // Example: Server Component
+    // const logger = getServerLogger('Service:AuthService'); // Example: Utility/Service
+    ```
+3.  **Log Messages:** Use the appropriate level methods (`error`, `warn`, `info`, `debug`):
+    ```typescript
+    logger.info('Processing user request', { userId: 'user-123', action: 'updateProfile' });
+    // ... later ...
+    if (potentialIssue) {
+        logger.warn('Potential issue detected during update', { userId: 'user-123', details: '...' });
+    }
+    // ... on error ...
+    catch (error) {
+        logger.error('Failed to update user profile', { userId: 'user-123', error: error }); // Pass the error object
+    }
+    ```
+
+**What to Log (Server-Side):**
+
+- API request start/end (consider `http` level).
+- Significant state changes or operations (e.g., user signup, workflow execution start/end).
+- Successful completion of critical tasks.
+- Errors and exceptions (always include the error object and stack trace).
+- Warnings about potential issues or deprecated usage.
+- Detailed debugging information (`debug` level) for development tracing.
+
+## Client-Side Logging (`getClientLogger`)
+
+**When to Use:**
+
+- Client Components (`"use client";` directive or Pages Router components rendered client-side).
+- `useEffect` hooks running in the browser.
+- Event handlers (`onClick`, `onChange`, etc.) executed in the browser.
+- Browser-specific API interactions.
+
+**How to Use:**
+
+1.  **Import:** Import the factory function:
+    ```typescript
+    import { getClientLogger } from "@/utils/logger/clientLogger";
+    ```
+2.  **Instantiate:** Create a logger instance at the top of the component or hook, providing a descriptive `componentName`:
+    ```typescript
+    const logger = getClientLogger("Component:AuthForm");
+    // const logger = getClientLogger('Hook:useWorkflowForm');
+    ```
+3.  **Log Messages:** Use the appropriate level methods (`error`, `warn`, `info`, `debug`):
+
+    - **`logger.error(message, meta)`:** Logs to the browser console AND sends the log to the `/api/log` endpoint (using `authenticatedPost`). **Use for actual errors encountered by the user.**
+    - **`logger.warn(message, meta)`:** Logs to the browser console. Currently _does not_ send to the server by default (can be enabled in `clientLogger.ts`). **Use sparingly for important warnings.**
+    - **`logger.info(message, meta)`:** Logs to the browser console only. **Use for general component lifecycle or state information during development.**
+    - **`logger.debug(message, meta)`:** Logs to the browser console _only_ during development (`process.env.NODE_ENV === 'development'`). **Use for detailed debugging.**
+
+    ```typescript
+    // Example in a component
+    const handleSubmit = async () => {
+      logger.info("Submit button clicked"); // Console only
+      try {
+        // ... form submission logic ...
+      } catch (error) {
+        logger.error("Form submission failed", {
+          formId: "signup",
+          error: error,
+        }); // Sends to server
+      }
+    };
+    ```
+
+**What to Log (Client-Side - Sending to Server):**
+
+- **Critical Errors:** Uncaught exceptions within components (use Error Boundaries or try/catch), failed API calls initiated by the client, significant UI state errors preventing user action.
+- **Important Warnings (Optional):** Maybe specific warnings indicating potential data loss or severe usability issues, but be _very_ selective.
+
+**What to Log (Client-Side - Browser Console Only):**
+
+- Component lifecycle events (`info`, `debug`).
+- State changes during development (`debug`).
+- User interaction events during development (`debug`).
+- Temporary debugging messages (`debug`).
+
+**Performance Warning:** Sending logs from the client uses network resources and server processing time. **DO NOT** send `info` or `debug` logs to the server in production. Be cautious even with `warn` logs. Over-logging from the client can degrade user experience and overload the `/api/log` endpoint.
+
+## Log Levels Guidance
+
+Use log levels consistently:
+
+- **`error` (0):** For actual errors, application failures, exceptions caught in `catch` blocks, failed critical operations (e.g., failed DB write, failed critical API call). **These are essential for production monitoring.**
+- **`warn` (1):** For potential problems, unexpected situations that don't crash the app, use of deprecated features, non-critical API failures (e.g., optional data fetch failed). **Use judiciously in production.**
+- **`info` (2):** For high-level application lifecycle events (e.g., "Server started", "User logged in", "Workflow started/completed"), successful completion of major operations. **Should be relatively low volume in production.**
+- **`http` (3):** For logging server-side HTTP requests and responses (method, URL, status code, duration). Often handled by middleware.
+- **`debug` (5):** For detailed diagnostic information useful only during development and troubleshooting (e.g., variable values, function entry/exit, detailed state changes). **Should NOT be enabled in production.**
+
+**Rule:** The configured `LOG_LEVEL` environment variable determines the _maximum_ level that will be processed. Messages logged at a level _numerically higher_ than the configured level will be ignored (e.g., if `LOG_LEVEL=info`, `debug` messages won't be processed).
+
+## Conclusion
+
+You **MUST** use the `getServerLogger(moduleName)` function for all server-side logging and the `getClientLogger(componentName)` function for all client-side logging. Adhere strictly to the guidelines on what to log and which levels to use, especially regarding client-side logging sent to the server. This ensures our logs remain valuable, performant, and secure.

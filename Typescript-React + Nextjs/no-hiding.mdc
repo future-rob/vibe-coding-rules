@@ -1,0 +1,207 @@
+---
+description: Critical rule requiring all lint errors to be fully resolved, never suppressed or hidden
+globs:
+  - "**/*.ts"
+  - "**/*.tsx"
+  - "**/*.js"
+  - "**/*.jsx"
+alwaysApply: true
+---
+
+# No Hiding Rule
+
+## Critical Principle
+
+**NEVER hide lint errors. You MUST solve them fully.**
+
+This is a non-negotiable rule that ensures code quality, maintainability, and prevents technical debt from accumulating.
+
+## What This Means
+
+### ❌ NEVER Do This
+
+```typescript
+// ❌ BAD - Suppressing lint errors
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function processData(data: any) {
+  // ...
+}
+
+// ❌ BAD - Ignoring TypeScript errors
+// @ts-ignore
+const result = unsafeOperation();
+
+// ❌ BAD - Using type assertions to bypass errors
+const value = (data as unknown as TargetType).property;
+
+// ❌ BAD - Commenting out problematic code instead of fixing
+// const brokenCode = somethingThatErrors();
+```
+
+### ✅ ALWAYS Do This
+
+```typescript
+// ✅ GOOD - Fix the root cause
+function processData<T>(data: T): ProcessedData<T> {
+  // Properly typed implementation
+}
+
+// ✅ GOOD - Add proper type guards
+if (isTargetType(data)) {
+  const result = safeOperation(data);
+}
+
+// ✅ GOOD - Use proper type narrowing
+if (data && typeof data === 'object' && 'property' in data) {
+  const value = data.property;
+}
+
+// ✅ GOOD - Refactor to eliminate the error
+const fixedCode = properlyImplementedFunction();
+```
+
+## Why This Rule Exists
+
+1. **Code Quality:** Lint errors indicate real problems that need attention
+2. **Type Safety:** TypeScript errors prevent runtime bugs
+3. **Maintainability:** Hidden errors create confusion for future developers
+4. **Technical Debt:** Suppressing errors accumulates problems over time
+5. **Team Consistency:** Everyone follows the same quality standards
+
+## Common Scenarios and Solutions
+
+### Scenario 1: TypeScript `any` Type
+
+**Problem:**
+```typescript
+// Lint error: Don't use 'any' type
+function process(data: any) {
+  return data.value;
+}
+```
+
+**Solution:**
+```typescript
+// Use generics or proper types
+function process<T extends { value: unknown }>(data: T): T['value'] {
+  return data.value;
+}
+
+// Or create a proper interface
+interface ProcessableData {
+  value: unknown;
+}
+
+function process(data: ProcessableData): unknown {
+  return data.value;
+}
+```
+
+### Scenario 2: Unused Variables
+
+**Problem:**
+```typescript
+// Lint error: 'unusedVar' is assigned but never used
+const unusedVar = expensiveOperation();
+```
+
+**Solution:**
+```typescript
+// Remove if truly unused
+const result = expensiveOperation();
+// Use the result or remove the variable
+
+// Or prefix with underscore if intentionally unused (sparingly)
+const _unusedVar = expensiveOperation(); // Only if you have a good reason
+```
+
+### Scenario 3: Missing Return Types
+
+**Problem:**
+```typescript
+// Lint error: Missing return type annotation
+function calculateTotal(items) {
+  return items.reduce((sum, item) => sum + item.price, 0);
+}
+```
+
+**Solution:**
+```typescript
+function calculateTotal(items: Item[]): number {
+  return items.reduce((sum, item) => sum + item.price, 0);
+}
+```
+
+### Scenario 4: Console Statements
+
+**Problem:**
+```typescript
+// Lint error: Unexpected console statement
+console.log('Debug info', data);
+```
+
+**Solution:**
+```typescript
+// Use proper logging (only when requested - see logging-guidelines.mdc)
+import { getClientLogger } from '@/utils/logger/clientLogger';
+const logger = getClientLogger('Component:MyComponent');
+logger.debug('Debug info', { data });
+```
+
+### Scenario 5: Non-null Assertions
+
+**Problem:**
+```typescript
+// Lint error: Forbidden non-null assertion
+const value = data!.property;
+```
+
+**Solution:**
+```typescript
+// Use proper null checking
+if (!data) {
+  throw new Error('Data is required');
+}
+const value = data.property;
+
+// Or use optional chaining with defaults
+const value = data?.property ?? defaultValue;
+```
+
+## Enforcement
+
+This rule is enforced through:
+
+1. **Linter Configuration:** ESLint and TypeScript strict mode catch violations
+2. **Pre-commit Hooks:** Code cannot be committed with lint errors
+3. **CI/CD Pipeline:** Builds fail if lint errors exist
+4. **Code Reviews:** Reviewers must ensure no errors are suppressed
+
+## When You Encounter Lint Errors
+
+1. **Read the Error:** Understand what the linter is complaining about
+2. **Understand Why:** Consider why the rule exists
+3. **Fix Properly:** Address the root cause, not the symptom
+4. **Ask for Help:** If unsure how to fix, ask the team rather than suppressing
+5. **Document:** If a fix requires a non-obvious approach, add a comment explaining why
+
+## Exceptions
+
+**There are NO exceptions to this rule.**
+
+If you believe a lint rule is incorrect or too strict:
+1. Discuss with the team
+2. Update the lint configuration if there's consensus
+3. Never suppress errors on a case-by-case basis
+
+## Related Guidelines
+
+- **Styling Guidelines:** Follow code style to prevent many lint errors
+- **TypeScript Best Practices:** Proper typing prevents type-related errors
+- **Commenting Guidelines:** Good comments help explain non-obvious code that might trigger lints
+
+## Remember
+
+**Every suppressed error is a future bug waiting to happen.**
+
+Fix errors properly, and your codebase will be cleaner, safer, and easier to maintain.

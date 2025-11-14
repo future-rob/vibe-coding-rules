@@ -1,0 +1,634 @@
+---
+description: Performance optimization guidelines for React and Next.js applications
+globs:
+  - "**/*.tsx"
+  - "**/*.ts"
+  - "**/pages/**"
+  - "**/components/**"
+alwaysApply: true
+---
+
+# Performance Guidelines
+
+## Philosophy
+
+Performance directly impacts user experience and business metrics. Our optimization strategy focuses on:
+1. **Measure First** - Never optimize without data
+2. **User-Centric** - Optimize for perceived performance
+3. **Progressive Enhancement** - Fast baseline, enhanced experience
+4. **Bundle Size Awareness** - Every KB matters
+
+## Core Web Vitals
+
+Focus on these key metrics:
+- **LCP (Largest Contentful Paint)** - Target: < 2.5s
+- **FID (First Input Delay)** - Target: < 100ms
+- **CLS (Cumulative Layout Shift)** - Target: < 0.1
+
+## React Performance Patterns
+
+### 1. Component Optimization
+
+#### React.memo for Expensive Components
+
+```typescript
+// ❌ BAD - Re-renders on every parent render
+export function ExpensiveList({ items, userId }: Props) {
+  return (
+    <VStack>
+      {items.map(item => (
+        <ComplexItem key={item.id} item={item} userId={userId} />
+      ))}
+    </VStack>
+  );
+}
+
+// ✅ GOOD - Only re-renders when props change
+export const ExpensiveList = React.memo(({ items, userId }: Props) => {
+  return (
+    <VStack>
+      {items.map(item => (
+        <ComplexItem key={item.id} item={item} userId={userId} />
+      ))}
+    </VStack>
+  );
+}, (prevProps, nextProps) => {
+  // Custom comparison if needed
+  return prevProps.userId === nextProps.userId && 
+         prevProps.items.length === nextProps.items.length;
+});
+```
+
+#### useMemo for Expensive Computations
+
+```typescript
+// ❌ BAD - Recalculates on every render
+export function DataAnalysis({ data }: Props) {
+  const processedData = data.map(item => ({
+    ...item,
+    score: calculateComplexScore(item),
+    percentile: calculatePercentile(item, data)
+  }));
+
+  return <DataVisualization data={processedData} />;
+}
+
+// ✅ GOOD - Only recalculates when data changes
+export function DataAnalysis({ data }: Props) {
+  const processedData = useMemo(() => {
+    return data.map(item => ({
+      ...item,
+      score: calculateComplexScore(item),
+      percentile: calculatePercentile(item, data)
+    }));
+  }, [data]);
+
+  return <DataVisualization data={processedData} />;
+}
+```
+
+#### useCallback for Stable Function References
+
+```typescript
+// ❌ BAD - Creates new function on every render
+export function TodoList({ todos }: Props) {
+  const handleDelete = (id: string) => {
+    deleteTodo(id);
+  };
+
+  return todos.map(todo => (
+    <TodoItem key={todo.id} todo={todo} onDelete={handleDelete} />
+  ));
+}
+
+// ✅ GOOD - Stable function reference
+export function TodoList({ todos }: Props) {
+  const handleDelete = useCallback((id: string) => {
+    deleteTodo(id);
+  }, []); // Empty deps if function doesn't depend on props/state
+
+  return todos.map(todo => (
+    <TodoItem key={todo.id} todo={todo} onDelete={handleDelete} />
+  ));
+}
+```
+
+### 2. State Management Optimization
+
+#### Avoid Unnecessary Re-renders with Zustand
+
+```typescript
+// ❌ BAD - Component re-renders on any store change
+export function UserProfile() {
+  const store = useUserDataStore();
+  return <div>{store.profile.name}</div>;
+}
+
+// ✅ GOOD - Only re-renders when specific data changes
+export function UserProfile() {
+  const userName = useUserDataStore(state => state.profile.name);
+  return <div>{userName}</div>;
+}
+
+// ✅ BETTER - Multiple selections with shallow equality
+export function UserCard() {
+  const { name, avatar } = useUserDataStore(
+    state => ({ name: state.profile.name, avatar: state.profile.avatar }),
+    shallow // Prevents re-render if values haven't changed
+  );
+  return (
+    <Box>
+      <Avatar src={avatar} />
+      <Text>{name}</Text>
+    </Box>
+  );
+}
+```
+
+#### Local State Before Global State
+
+```typescript
+// ❌ BAD - Global state for UI-only concerns
+const useUIStore = create((set) => ({
+  isDropdownOpen: false,
+  activeTab: 0,
+  // UI state doesn't belong in global store
+}));
+
+// ✅ GOOD - Local state for component-specific UI
+export function Dropdown() {
+  const [isOpen, setIsOpen] = useState(false);
+  // Keep UI state local
+}
+```
+
+### 3. List Rendering Optimization
+
+#### Virtualization for Long Lists
+
+```typescript
+// ❌ BAD - Rendering 10000 items
+export function UserList({ users }: { users: User[] }) {
+  return (
+    <VStack>
+      {users.map(user => (
+        <UserCard key={user.id} user={user} />
+      ))}
+    </VStack>
+  );
+}
+
+// ✅ GOOD - Virtual scrolling with react-window
+import { FixedSizeList } from 'react-window';
+
+export function UserList({ users }: { users: User[] }) {
+  const Row = ({ index, style }: { index: number; style: React.CSSProperties }) => (
+    <div style={style}>
+      <UserCard user={users[index]} />
+    </div>
+  );
+
+  return (
+    <FixedSizeList
+      height={600}
+      itemCount={users.length}
+      itemSize={80}
+      width="100%"
+    >
+      {Row}
+    </FixedSizeList>
+  );
+}
+```
+
+#### Proper Keys for List Items
+
+```typescript
+// ❌ BAD - Using index as key
+{items.map((item, index) => (
+  <Item key={index} {...item} />
+))}
+
+// ✅ GOOD - Stable, unique keys
+{items.map(item => (
+  <Item key={item.id} {...item} />
+))}
+```
+
+### 4. Event Handler Optimization
+
+#### Debouncing User Input
+
+```typescript
+// ❌ BAD - API call on every keystroke
+export function SearchBox() {
+  const [query, setQuery] = useState('');
+  
+  const handleSearch = async (value: string) => {
+    const results = await searchAPI(value);
+    setResults(results);
+  };
+
+  return (
+    <Input
+      value={query}
+      onChange={(e) => {
+        setQuery(e.target.value);
+        handleSearch(e.target.value);
+      }}
+    />
+  );
+}
+
+// ✅ GOOD - Debounced API calls
+import { useDebouncedCallback } from 'use-debounce';
+
+export function SearchBox() {
+  const [query, setQuery] = useState('');
+  
+  const debouncedSearch = useDebouncedCallback(async (value: string) => {
+    const results = await searchAPI(value);
+    setResults(results);
+  }, 300);
+
+  return (
+    <Input
+      value={query}
+      onChange={(e) => {
+        setQuery(e.target.value);
+        debouncedSearch(e.target.value);
+      }}
+    />
+  );
+}
+```
+
+## Next.js Performance Patterns
+
+### 1. Image Optimization
+
+```typescript
+// ❌ BAD - Unoptimized images
+<img src="/hero-image.png" alt="Hero" />
+
+// ✅ GOOD - Next.js Image component
+import Image from 'next/image';
+
+<Image
+  src="/hero-image.png"
+  alt="Hero"
+  width={1200}
+  height={600}
+  priority // For above-the-fold images
+  placeholder="blur"
+  blurDataURL={blurDataUrl}
+/>
+```
+
+### 2. Code Splitting
+
+#### Dynamic Imports for Heavy Components
+
+```typescript
+// ❌ BAD - Loading heavy component upfront
+import HeavyChart from '@/components/HeavyChart';
+
+export function Dashboard() {
+  const [showChart, setShowChart] = useState(false);
+  
+  return (
+    <>
+      <Button onClick={() => setShowChart(true)}>Show Chart</Button>
+      {showChart && <HeavyChart />}
+    </>
+  );
+}
+
+// ✅ GOOD - Load only when needed
+import dynamic from 'next/dynamic';
+
+const HeavyChart = dynamic(() => import('@/components/HeavyChart'), {
+  loading: () => <Spinner />,
+  ssr: false // If not needed for SSR
+});
+
+export function Dashboard() {
+  const [showChart, setShowChart] = useState(false);
+  
+  return (
+    <>
+      <Button onClick={() => setShowChart(true)}>Show Chart</Button>
+      {showChart && <HeavyChart />}
+    </>
+  );
+}
+```
+
+### 3. API Route Optimization
+
+#### Efficient Data Fetching
+
+```typescript
+// ❌ BAD - Multiple sequential queries
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  const user = await getUserById(req.query.id);
+  const posts = await getPostsByUserId(user.id);
+  const comments = await getCommentsByUserId(user.id);
+  
+  res.json({ user, posts, comments });
+}
+
+// ✅ GOOD - Parallel queries
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  const userId = req.query.id as string;
+  
+  const [user, posts, comments] = await Promise.all([
+    getUserById(userId),
+    getPostsByUserId(userId),
+    getCommentsByUserId(userId)
+  ]);
+  
+  res.json({ user, posts, comments });
+}
+```
+
+#### Response Caching
+
+```typescript
+// ✅ Set appropriate cache headers
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  // For static data
+  res.setHeader('Cache-Control', 'public, s-maxage=3600, stale-while-revalidate');
+  
+  // For user-specific data
+  res.setHeader('Cache-Control', 'private, max-age=600');
+  
+  const data = await fetchData();
+  res.json(data);
+}
+```
+
+### 4. Static Generation vs Server-Side Rendering
+
+```typescript
+// ✅ Static Generation for marketing pages
+export const getStaticProps: GetStaticProps = async () => {
+  const data = await fetchStaticData();
+  
+  return {
+    props: { data },
+    revalidate: 3600 // ISR - revalidate every hour
+  };
+};
+
+// ✅ SSR only when necessary (user-specific data)
+export const getServerSideProps: GetServerSideProps = async (context) => {
+  const user = await authenticateUser(context.req);
+  
+  if (!user) {
+    return { redirect: { destination: '/login', permanent: false } };
+  }
+  
+  const userData = await fetchUserData(user.id);
+  return { props: { userData } };
+};
+```
+
+## Bundle Size Optimization
+
+### 1. Tree Shaking Imports
+
+```typescript
+// ❌ BAD - Imports entire library
+import * as _ from 'lodash';
+const result = _.debounce(fn, 300);
+
+// ✅ GOOD - Import only what you need
+import debounce from 'lodash/debounce';
+const result = debounce(fn, 300);
+
+// ❌ BAD - Imports all icons
+import * as Icons from '@chakra-ui/icons';
+<Icons.AddIcon />
+
+// ✅ GOOD - Specific imports
+import { AddIcon } from '@chakra-ui/icons';
+<AddIcon />
+```
+
+### 2. Lazy Load Third-Party Scripts
+
+```typescript
+// ❌ BAD - Loading analytics on page load
+import Script from 'next/script';
+
+<Script src="https://analytics.com/script.js" />
+
+// ✅ GOOD - Load after interactive
+<Script 
+  src="https://analytics.com/script.js"
+  strategy="afterInteractive"
+/>
+
+// ✅ BETTER - Load only when needed
+<Script 
+  src="https://analytics.com/script.js"
+  strategy="lazyOnload"
+/>
+```
+
+### 3. Analyze Bundle Size
+
+```json
+// package.json
+{
+  "scripts": {
+    "analyze": "ANALYZE=true next build"
+  }
+}
+```
+
+```typescript
+// next.config.js
+const withBundleAnalyzer = require('@next/bundle-analyzer')({
+  enabled: process.env.ANALYZE === 'true',
+});
+
+module.exports = withBundleAnalyzer({
+  // your config
+});
+```
+
+## Data Fetching Optimization
+
+### 1. SWR for Client-Side Caching
+
+```typescript
+// ❌ BAD - Fetching in useEffect
+export function UserProfile({ userId }: Props) {
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch(`/api/users/${userId}`)
+      .then(res => res.json())
+      .then(data => {
+        setUser(data);
+        setLoading(false);
+      });
+  }, [userId]);
+
+  if (loading) return <Spinner />;
+  return <div>{user.name}</div>;
+}
+
+// ✅ GOOD - SWR with caching, revalidation, error handling
+import useSWR from 'swr';
+
+export function UserProfile({ userId }: Props) {
+  const { data: user, error, isLoading } = useSWR(
+    `/api/users/${userId}`,
+    fetcher,
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: false,
+      dedupingInterval: 60000, // Cache for 1 minute
+    }
+  );
+
+  if (isLoading) return <Spinner />;
+  if (error) return <ErrorMessage />;
+  return <div>{user.name}</div>;
+}
+```
+
+### 2. Optimistic Updates
+
+```typescript
+// ✅ Update UI immediately, sync with server
+export function TodoItem({ todo }: Props) {
+  const { mutate } = useSWRConfig();
+  
+  const toggleComplete = async () => {
+    // Optimistic update
+    mutate(
+      `/api/todos/${todo.id}`,
+      { ...todo, completed: !todo.completed },
+      false // Don't revalidate yet
+    );
+    
+    // Sync with server
+    try {
+      await updateTodo(todo.id, { completed: !todo.completed });
+      mutate(`/api/todos/${todo.id}`); // Revalidate
+    } catch (error) {
+      // Rollback on error
+      mutate(`/api/todos/${todo.id}`);
+    }
+  };
+
+  return (
+    <Checkbox isChecked={todo.completed} onChange={toggleComplete}>
+      {todo.title}
+    </Checkbox>
+  );
+}
+```
+
+## Performance Monitoring
+
+### 1. React DevTools Profiler
+
+```typescript
+// Wrap components to measure performance
+import { Profiler } from 'react';
+
+function onRenderCallback(
+  id: string,
+  phase: "mount" | "update",
+  actualDuration: number
+) {
+  console.log(`${id} (${phase}) took ${actualDuration}ms`);
+}
+
+<Profiler id="Navigation" onRender={onRenderCallback}>
+  <Navigation />
+</Profiler>
+```
+
+### 2. Web Vitals Monitoring
+
+```typescript
+// pages/_app.tsx
+export function reportWebVitals(metric: NextWebVitalsMetric) {
+  if (metric.label === 'web-vital') {
+    console.log(metric); // or send to analytics
+  }
+}
+```
+
+### 3. Custom Performance Marks
+
+```typescript
+// Measure critical operations
+export async function loadDashboardData() {
+  performance.mark('dashboard-load-start');
+  
+  const data = await fetchDashboardData();
+  
+  performance.mark('dashboard-load-end');
+  performance.measure(
+    'dashboard-load',
+    'dashboard-load-start',
+    'dashboard-load-end'
+  );
+  
+  return data;
+}
+```
+
+## Performance Checklist
+
+### Before Deploy
+- [ ] Run bundle analyzer and check for large dependencies
+- [ ] Ensure images use Next.js Image component
+- [ ] Verify static pages use getStaticProps where possible
+- [ ] Check for proper key props in lists
+- [ ] Review React DevTools for unnecessary re-renders
+- [ ] Test on throttled network conditions
+- [ ] Verify lazy loading for below-the-fold content
+
+### Monitoring
+- [ ] Set up Web Vitals monitoring
+- [ ] Track bundle size in CI/CD
+- [ ] Monitor API response times
+- [ ] Set up alerts for performance regressions
+
+## Anti-Patterns to Avoid
+
+```typescript
+// ❌ Inline function definitions in render
+<Button onClick={() => handleClick(item.id)}>
+
+// ❌ Unnecessary spread operators
+<Component {...props} />  // If not all props are needed
+
+// ❌ Large inline styles objects
+<Box style={{ display: 'flex', padding: 20, margin: 10, ...more }}>
+
+// ❌ Synchronous expensive operations in render
+const expensiveResult = calculateComplexValue(data); // Do this in useMemo
+
+// ❌ Multiple setState calls
+setLoading(true);
+setError(null);
+setData(null); // Combine into single state or use reducer
+```
+
+## Remember
+
+- **Measure before optimizing** - Use profiler and metrics
+- **User perception matters** - Optimize for perceived performance
+- **Progressive enhancement** - Fast for everyone, enhanced for some
+- **Mobile first** - Most users are on mobile devices
+- **Every KB counts** - Be mindful of bundle size

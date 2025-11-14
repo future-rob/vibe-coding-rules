@@ -1,0 +1,417 @@
+---
+description: Core framework, language, and platform specifications for Arduino/microcontroller projects using PlatformIO
+globs:
+  - "**/*.cpp"
+  - "**/*.c"
+  - "**/*.h"
+  - "**/*.hpp"
+  - "**/*.ino"
+  - "**/platformio.ini"
+  - "**/src/**"
+  - "**/lib/**"
+alwaysApply: true
+---
+
+# Core Framework & Language
+
+## Overview
+
+This document defines the foundational technology stack and development environment for Arduino and microcontroller projects. All code must align with these specifications to ensure reliability, portability, and maintainability in embedded systems.
+
+## Framework
+
+- **Framework:** [Arduino Framework](https://www.arduino.cc/reference/en/)
+  - Provides a simplified C++ API for microcontroller programming
+  - Abstracts hardware-specific details while allowing low-level access
+  - Compatible with thousands of libraries and hardware platforms
+  - Supports both 8-bit (AVR) and 32-bit (ARM, ESP32) architectures
+
+## Language
+
+- **Language:** C++ (Arduino variant)
+  - Based on C++11/14 with some restrictions for embedded use
+  - No exceptions (disabled for memory efficiency)
+  - No RTTI (Run-Time Type Information)
+  - Limited STL support (platform-dependent)
+  - Static memory allocation preferred over dynamic
+
+## Build System
+
+- **Build System:** [PlatformIO Core](https://platformio.org/)
+  - Modern, professional IDE with powerful debugging
+  - Multi-platform/multi-board support in single project
+  - Dependency management with semantic versioning
+  - Unit testing framework built-in
+  - Continuous Integration friendly
+
+## Supported Platforms
+
+### Primary Platforms
+- **AVR:** Arduino Uno, Mega, Nano (ATmega328P, ATmega2560)
+- **ESP32:** Espressif ESP32, ESP32-S2, ESP32-S3, ESP32-C3
+- **ESP8266:** NodeMCU, Wemos D1, Generic ESP8266
+- **STM32:** STM32F103 (Blue Pill), STM32F4, STM32H7 series
+- **RP2040:** Raspberry Pi Pico, Arduino Nano RP2040 Connect
+
+### Platform-Specific Considerations
+
+```cpp
+// Platform detection macros
+#ifdef ARDUINO_ARCH_AVR
+  // AVR-specific code (Arduino Uno, Mega, etc.)
+  #define CPU_FREQ F_CPU
+  #define HAS_EEPROM 1
+#elif defined(ESP32)
+  // ESP32-specific code
+  #define CPU_FREQ CONFIG_ESP32_DEFAULT_CPU_FREQ_MHZ * 1000000
+  #define HAS_WIFI 1
+  #define HAS_BLUETOOTH 1
+#elif defined(ESP8266)
+  // ESP8266-specific code
+  #define CPU_FREQ F_CPU
+  #define HAS_WIFI 1
+#elif defined(STM32)
+  // STM32-specific code
+  #define CPU_FREQ SystemCoreClock
+  #define HAS_DMA 1
+#elif defined(ARDUINO_ARCH_RP2040)
+  // RP2040-specific code
+  #define CPU_FREQ 125000000
+  #define HAS_PIO 1
+#endif
+```
+
+## Project Structure
+
+Standard PlatformIO project structure:
+
+```
+project-root/
+├── platformio.ini          # Project configuration
+├── src/                    # Source files
+│   ├── main.cpp           # Entry point
+│   ├── config.h           # Configuration header
+│   └── modules/           # Feature modules
+│       ├── sensors/
+│       ├── actuators/
+│       └── communication/
+├── lib/                    # Private libraries
+│   └── MyCustomLib/
+│       ├── library.json   # Library manifest
+│       ├── src/
+│       └── include/
+├── include/               # Public headers
+│   └── project_config.h
+├── test/                  # Unit tests
+│   ├── test_native/      # Native (desktop) tests
+│   └── test_embedded/    # On-device tests
+├── data/                  # SPIFFS/LittleFS data
+└── docs/                  # Documentation
+```
+
+## Core Language Features
+
+### Memory Model
+
+```cpp
+// Memory sections in embedded systems
+// .text    - Program code (Flash/ROM)
+// .data    - Initialized variables (RAM)
+// .bss     - Uninitialized variables (RAM)
+// .rodata  - Read-only data (Flash/ROM)
+
+// Store constants in program memory (Flash)
+const char message[] PROGMEM = "Hello from Flash memory";
+
+// F() macro for string literals (AVR-specific)
+Serial.println(F("This string stays in Flash"));
+
+// Static allocation preferred
+constexpr size_t BUFFER_SIZE = 256;
+uint8_t buffer[BUFFER_SIZE];  // Stack allocation
+
+// Avoid dynamic allocation
+// ❌ BAD
+String dynamicString = "This uses heap";
+std::vector<int> dynamicVector;
+
+// ✅ GOOD
+char staticString[32] = "This uses stack";
+int staticArray[10];
+```
+
+### Type System
+
+```cpp
+// Use fixed-width integers for portability
+#include <stdint.h>
+
+uint8_t  byteValue;    // 0 to 255
+int8_t   signedByte;   // -128 to 127
+uint16_t wordValue;    // 0 to 65535
+int16_t  signedWord;   // -32768 to 32767
+uint32_t dwordValue;   // 0 to 4294967295
+int32_t  signedDword;  // -2147483648 to 2147483647
+
+// Boolean type
+bool flagValue;  // true or false
+
+// Floating point (use sparingly on 8-bit MCUs)
+float temperature;    // 32-bit, ~7 decimal digits
+double precision;     // Often same as float on embedded
+
+// Pointer types
+uint8_t* dataPtr;
+const uint8_t* constDataPtr;
+volatile uint8_t* volatilePtr;  // For hardware registers
+
+// Function pointers
+typedef void (*EventHandler)(void);
+EventHandler onButtonPress;
+```
+
+### Compile-Time Features
+
+```cpp
+// Use constexpr for compile-time constants
+constexpr uint8_t LED_PIN = 13;
+constexpr uint32_t BAUD_RATE = 115200;
+constexpr float PI = 3.14159265359f;
+
+// Template metaprogramming for zero-cost abstractions
+template<uint8_t PIN>
+class DigitalOutput {
+    static_assert(PIN < NUM_DIGITAL_PINS, "Invalid pin number");
+public:
+    static void init() {
+        pinMode(PIN, OUTPUT);
+    }
+    
+    static void set(bool value) {
+        digitalWrite(PIN, value);
+    }
+};
+
+// Using alias templates
+using StatusLED = DigitalOutput<LED_BUILTIN>;
+
+// Compile-time calculations
+constexpr uint32_t calculateBaudDivider(uint32_t baud) {
+    return (F_CPU / 16 / baud) - 1;
+}
+```
+
+## Platform Configuration
+
+### PlatformIO.ini Example
+
+```ini
+; PlatformIO Project Configuration File
+[platformio]
+default_envs = esp32dev, arduino_uno, stm32
+
+; Shared settings for all environments
+[env]
+framework = arduino
+monitor_speed = 115200
+lib_deps = 
+    ; Common libraries with version constraints
+    adafruit/Adafruit Unified Sensor@^1.1.6
+    paulstoffregen/OneWire@^2.3.7
+build_flags = 
+    -Wall                    ; All warnings
+    -Wextra                  ; Extra warnings
+    -D VERSION=1.0.0         ; Version definition
+    -D DEBUG_LEVEL=2         ; Debug verbosity
+
+; ESP32 Development Board
+[env:esp32dev]
+platform = espressif32
+board = esp32dev
+build_flags = 
+    ${env.build_flags}
+    -D ESP32
+    -D CORE_DEBUG_LEVEL=2
+    -mtext-section-literals  ; Optimization
+lib_deps = 
+    ${env.lib_deps}
+    bblanchon/ArduinoJson@^6.19.4
+    knolleary/PubSubClient@^2.8
+
+; Arduino Uno (AVR)
+[env:arduino_uno]
+platform = atmelavr
+board = uno
+build_flags = 
+    ${env.build_flags}
+    -D AVR
+    -Os                      ; Optimize for size
+    -flto                    ; Link-time optimization
+build_unflags = 
+    -std=gnu++11            ; Remove C++11 for size
+
+; STM32 Blue Pill
+[env:stm32]
+platform = ststm32
+board = bluepill_f103c8
+build_flags = 
+    ${env.build_flags}
+    -D STM32
+    -D ENABLE_HWSERIAL2
+upload_protocol = stlink
+debug_tool = stlink
+```
+
+## Compiler Settings
+
+### Optimization Flags
+
+```cpp
+// Optimization pragmas for critical sections
+#pragma GCC push_options
+#pragma GCC optimize ("O3")
+void timeCriticalFunction() {
+    // Optimized for speed
+}
+#pragma GCC pop_options
+
+// Function attributes
+void __attribute__((always_inline)) inlineHelper() {
+    // Force inline
+}
+
+void __attribute__((noinline)) debugFunction() {
+    // Prevent inlining for debugging
+}
+
+void __attribute__((weak)) defaultImplementation() {
+    // Can be overridden
+}
+
+// Section placement
+void __attribute__((section(".fastcode"))) fastISR() {
+    // Place in RAM for faster execution
+}
+```
+
+## Arduino API Compatibility
+
+### Core Functions
+
+```cpp
+// Required Arduino functions
+void setup() {
+    // One-time initialization
+    // Called once at startup
+}
+
+void loop() {
+    // Main program loop
+    // Called repeatedly
+    // Should not block for long periods
+}
+
+// Optional main() override (advanced)
+int main() {
+    init();        // Arduino core initialization
+    setup();       // User setup
+    
+    for (;;) {
+        loop();    // User loop
+        if (serialEventRun) serialEventRun();
+    }
+    return 0;
+}
+```
+
+### Time Functions
+
+```cpp
+// Millisecond timer (overflows after ~49 days)
+unsigned long currentMillis = millis();
+
+// Microsecond timer (overflows after ~70 minutes)
+unsigned long currentMicros = micros();
+
+// Delays (blocking - use sparingly)
+delay(1000);        // Delay 1 second
+delayMicroseconds(100);  // Delay 100 microseconds
+
+// Non-blocking timing pattern
+unsigned long previousMillis = 0;
+const unsigned long interval = 1000;
+
+if (millis() - previousMillis >= interval) {
+    previousMillis = millis();
+    // Do something every second
+}
+```
+
+## Development Environment
+
+### Required Tools
+
+1. **PlatformIO Core CLI** or **PlatformIO IDE**:
+   ```bash
+   # Install PlatformIO Core
+   pip install platformio
+   
+   # Or install VS Code extension
+   code --install-extension platformio.platformio-ide
+   ```
+
+2. **Version Control Integration**:
+   ```bash
+   # Initialize project
+   pio init --board esp32dev --board uno
+   
+   # Add to git
+   git init
+   git add .
+   git commit -m "Initial PlatformIO project"
+   ```
+
+3. **Debugging Tools**:
+   - Serial Monitor
+   - Logic Analyzer (Saleae, Sigrok)
+   - Oscilloscope for timing analysis
+   - JTAG/SWD debugger (platform-specific)
+
+### Build Commands
+
+```bash
+# Build project
+pio run
+
+# Build specific environment
+pio run -e esp32dev
+
+# Upload to board
+pio run -t upload
+
+# Monitor serial output
+pio device monitor
+
+# Run tests
+pio test
+
+# Clean build files
+pio run -t clean
+
+# Update libraries
+pio lib update
+
+# Static code analysis
+pio check
+```
+
+## Best Practices Summary
+
+1. **Memory Management**: Prefer static allocation, use PROGMEM for constants
+2. **Platform Abstraction**: Use conditional compilation for platform differences
+3. **Type Safety**: Use fixed-width types, avoid implicit conversions
+4. **Compile-Time**: Leverage constexpr and templates for zero-cost abstractions
+5. **Arduino Compatibility**: Maintain Arduino API while adding advanced features
+6. **Build Configuration**: Use PlatformIO environments for multi-platform support
+7. **Testing**: Write unit tests for business logic, integration tests for hardware
+8. **Documentation**: Document hardware assumptions and platform-specific code

@@ -1,0 +1,222 @@
+---
+description: Key architectural patterns and organizational principles for the codebase
+globs:
+  - "**/services/**"
+  - "**/utils/**"
+  - "**/components/modules/**"
+  - "**/*Registry*.ts"
+  - "**/*registry*.ts"
+alwaysApply: true
+---
+
+# Key Architectural Patterns
+
+## Overview
+
+This document outlines the core architectural patterns used throughout the codebase. These patterns ensure consistency, maintainability, and separation of concerns.
+
+## Service Layer Pattern
+
+**Purpose:** Encapsulate business logic and complex data access operations.
+
+**Location:** `src/services/` directory
+
+**Principles:**
+- API routes should be thin wrappers that delegate to service functions
+- All business logic lives in services, not in API route handlers
+- Services handle data transformation, validation, and external API calls
+- Services are pure functions that can be easily tested
+
+**Example:**
+
+```typescript
+// ❌ BAD - Business logic in API route
+// src/pages/api/users/[id].ts
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  const { data, error } = await supabase
+    .from('users')
+    .select('*')
+    .eq('id', req.query.id)
+    .single();
+  
+  if (error) {
+    return res.status(404).json({ error: 'User not found' });
+  }
+  
+  // Business logic mixed with route handling
+  const processedData = {
+    ...data,
+    displayName: `${data.firstName} ${data.lastName}`,
+    isActive: data.status === 'active'
+  };
+  
+  res.json(processedData);
+}
+
+// ✅ GOOD - Business logic in service
+// src/services/userService.ts
+export async function getUserProfile(userId: string): Promise<UserProfile> {
+  const { data, error } = await supabase
+    .from('users')
+    .select('*')
+    .eq('id', userId)
+    .single();
+  
+  if (error) {
+    throw new NotFoundError('User');
+  }
+  
+  return {
+    ...data,
+    displayName: `${data.firstName} ${data.lastName}`,
+    isActive: data.status === 'active'
+  };
+}
+
+// src/pages/api/users/[id].ts
+export default withErrorHandler(async (req, res) => {
+  const user = await getUserProfile(req.query.id as string);
+  res.json(user);
+});
+```
+
+## Utility Functions Pattern
+
+**Purpose:** Organize reusable, lower-level helper functions.
+
+**Location:** `src/utils/` directory, organized by category
+
+**Structure:**
+
+```
+src/utils/
+├── api/          # API-related utilities (fetch wrappers, HOFs)
+├── auth/        # Authentication utilities
+├── formatters/  # Data formatting functions
+├── validators/  # Validation helpers
+└── helpers/     # General utility functions
+```
+
+**Principles:**
+- Pure functions when possible (no side effects)
+- Single responsibility per function
+- Well-documented with JSDoc
+- Reusable across the codebase
+
+**Example:**
+
+```typescript
+// src/utils/formatters/currency.ts
+/**
+ * Formats a number as currency in the specified locale.
+ *
+ * @param amount - The amount to format
+ * @param currency - ISO currency code (default: 'USD')
+ * @param locale - Locale string (default: 'en-US')
+ * @returns Formatted currency string
+ */
+export function formatCurrency(
+  amount: number,
+  currency: string = 'USD',
+  locale: string = 'en-US'
+): string {
+  return new Intl.NumberFormat(locale, {
+    style: 'currency',
+    currency,
+  }).format(amount);
+}
+```
+
+## Modular Components Pattern
+
+**Purpose:** Group feature-specific UI components together.
+
+**Location:** `src/components/modules/` directory
+
+**Structure:**
+
+```
+src/components/modules/
+├── auth/
+│   ├── LoginForm.tsx
+│   ├── SignUpForm.tsx
+│   └── PasswordReset.tsx
+├── workflows/
+│   ├── WorkflowBuilder.tsx
+│   ├── WorkflowSteps.tsx
+│   └── WorkflowCard.tsx
+└── users/
+    ├── UserProfile.tsx
+    └── UserList.tsx
+```
+
+**Principles:**
+- Group related components by feature/domain
+- Keep components focused and composable
+- Share types and utilities within the module
+- Export through index files for clean imports
+
+**Example:**
+
+```typescript
+// src/components/modules/workflows/index.ts
+export { WorkflowBuilder } from './WorkflowBuilder';
+export { WorkflowSteps } from './WorkflowSteps';
+export { WorkflowCard } from './WorkflowCard';
+export type { Workflow, WorkflowStep } from './types';
+
+// Usage
+import { WorkflowBuilder, type Workflow } from '@/components/modules/workflows';
+```
+
+## Registry Pattern
+
+**Purpose:** Manage dynamic collections of components, executors, or handlers.
+
+**Examples:** `ActionRegistry`, `DatasetRegistry`, `WorkflowRegistry`
+
+**Principles:**
+- Centralized registration and lookup
+- Type-safe registration and retrieval
+- Supports dynamic loading and extension
+- Clear interface for registration and discovery
+
+**Example:**
+
+```typescript
+// src/utils/registries/ActionRegistry.ts
+type ActionHandler = (params: Record<string, unknown>) => Promise<unknown>;
+
+class ActionRegistry {
+  private actions = new Map<string, ActionHandler>();
+
+  register(name: string, handler: ActionHandler): void {
+    if (this.actions.has(name)) {
+      throw new Error(`Action "${name}" is already registered`);
+    }
+    this.actions.set(name, handler);
+  }
+
+  get(name: string): ActionHandler {
+    const handler = this.actions.get(name);
+    if (!handler) {
+      throw new NotFoundError(`Action "${name}" not found`);
+    }
+    return handler;
+  }
+
+  list(): string[] {
+    return Array.from(this.actions.keys());
+  }
+}
+
+export const actionRegistry = new ActionRegistry();
+```
+
+## Best Practices
+
+1. **Separation of Concerns:** Keep API routes thin, services focused, and utilities reusable
+2. **Single Responsibility:** Each module/function should do one thing well
+3. **Testability:** Architecture should make testing easy (services are pure, utilities are isolated)
+4. **Consistency:** Follow these patterns consistently across the codebase
+5. **Documentation:** Document architectural decisions and patterns in code comments

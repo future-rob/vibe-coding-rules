@@ -1,0 +1,321 @@
+---
+description: Guidance for resolving rule conflicts and handling exceptions in embedded systems
+globs:
+  - "**/*.cpp"
+  - "**/*.c"
+  - "**/*.h"
+alwaysApply: true
+---
+
+# Conflict Resolution
+
+## Overview
+
+When coding guidelines conflict or when exceptions are needed for embedded systems, this document provides guidance on how to resolve conflicts and document exceptions. Hardware constraints often override general programming practices.
+
+## Priority Hierarchy
+
+When rules conflict, follow this priority order:
+
+1. **Hardware Constraints** - Hardware limitations take precedence
+2. **Safety & Reliability** - Safety-critical requirements override other rules
+3. **No Hiding Rule** - Never suppress errors or warnings
+4. **Real-Time Constraints** - Timing requirements override code style
+5. **Memory Constraints** - Memory limitations override code organization
+6. **Core Framework & Language** - Framework requirements
+7. **Error Handling Patterns** - Consistent error handling
+8. **Code Style Guidelines** - Formatting and style
+9. **Performance Guidelines** - Optimization considerations
+10. **Commenting Guidelines** - Documentation standards
+
+## Common Conflict Scenarios
+
+### Scenario 1: Memory Constraints vs Code Organization
+
+**Conflict:** Code organization suggests splitting into multiple files, but memory constraints require single file
+
+**Resolution:**
+- Prefer single file if memory is critical
+- Document why code is combined
+- Use clear section comments to organize
+
+**Example:**
+
+```cpp
+// Memory constraint: Must fit in 8KB flash
+// Resolution: Combine related functionality in single file
+
+// ✅ GOOD - Combined with clear organization
+// ============================================================================
+// Sensor Management (combined for memory efficiency)
+// ============================================================================
+
+class TemperatureSensor { /* ... */ };
+class HumiditySensor { /* ... */ };
+class PressureSensor { /* ... */ };
+
+// Document why combined
+// NOTE: Combined into single file to reduce flash usage
+//       Separate files would add ~500 bytes overhead
+```
+
+### Scenario 2: Performance vs Code Style
+
+**Conflict:** Performance requires direct port manipulation, but style prefers abstraction
+
+**Resolution:**
+- Optimize for performance when there's measurable impact
+- Use abstraction with compile-time optimization
+- Document performance requirement
+
+**Example:**
+
+```cpp
+// Performance requirement: Pin toggle must be < 1us
+// Style prefers hardware abstraction
+// Resolution: Use direct port manipulation, document why
+
+// ✅ GOOD - Direct port manipulation with explanation
+// CRITICAL: Direct port manipulation required for < 1us timing
+// Hardware abstraction adds ~2us overhead (measured)
+PORTB ^= (1 << PB5);  // Toggle pin 13 (PB5)
+
+// Alternative: Template-based abstraction that compiles to same code
+template<uint8_t PIN>
+void fastToggle() {
+  if constexpr (PIN == 13) {
+    PORTB ^= (1 << PB5);
+  }
+}
+```
+
+### Scenario 3: Real-Time Constraints vs Error Handling
+
+**Conflict:** ISR must complete quickly, but error handling adds overhead
+
+**Resolution:**
+- Minimal error handling in ISR
+- Defer detailed error handling to main loop
+- Set flags for main loop to process
+
+**Example:**
+
+```cpp
+// Real-time constraint: ISR must complete in < 50us
+// Error handling adds overhead
+// Resolution: Minimal ISR, defer to main loop
+
+// ✅ GOOD - Minimal ISR, defer error handling
+volatile bool dataReady = false;
+volatile uint8_t errorFlag = 0;
+
+ISR(ADC_vect) {
+  if (ADCSRA & (1 << ADIF)) {
+    adcValue = ADC;
+    dataReady = true;
+  } else {
+    errorFlag = 1;  // Set flag, handle in main loop
+  }
+}
+
+void loop() {
+  if (errorFlag) {
+    // Detailed error handling in main loop
+    handleADCError();
+    errorFlag = 0;
+  }
+}
+```
+
+### Scenario 4: Platform Compatibility vs Code Style
+
+**Conflict:** Platform-specific code needed, but style prefers consistency
+
+**Resolution:**
+- Use conditional compilation
+- Abstract platform differences
+- Document platform requirements
+
+**Example:**
+
+```cpp
+// Platform compatibility: Different APIs per platform
+// Code style: Prefer consistent interface
+// Resolution: Abstract with conditional compilation
+
+// ✅ GOOD - Platform abstraction
+class Timer {
+public:
+  void init(uint32_t frequencyHz) {
+    #ifdef ESP32
+      timer_ = timerBegin(0, 80, true);
+      timerAlarmWrite(timer_, 1000000 / frequencyHz, true);
+    #elif defined(__AVR__)
+      // AVR timer configuration
+      TCCR1B = (1 << WGM12);
+      OCR1A = (F_CPU / frequencyHz) - 1;
+    #endif
+  }
+  
+private:
+  #ifdef ESP32
+    hw_timer_t* timer_;
+  #endif
+};
+```
+
+### Scenario 5: Memory vs Feature Completeness
+
+**Conflict:** Full feature set desired, but memory is limited
+
+**Resolution:**
+- Implement core features first
+- Use compile-time feature flags
+- Document memory usage per feature
+
+**Example:**
+
+```cpp
+// Memory constraint: 2KB RAM available
+// Feature: Full logging system desired
+// Resolution: Conditional compilation, minimal default
+
+// ✅ GOOD - Feature flags
+#ifdef ENABLE_LOGGING
+  class FullLogger { /* ... */ };
+  FullLogger logger;
+#else
+  // Minimal logging for production
+  #define LOG(msg) ((void)0)
+#endif
+
+// Document memory impact
+// FullLogger: +512 bytes RAM
+// Minimal: +0 bytes RAM
+```
+
+### Scenario 6: Code Readability vs Performance
+
+**Conflict:** Readable code uses function calls, but performance needs inline
+
+**Resolution:**
+- Use inline functions or templates
+- Compiler will optimize appropriately
+- Profile to verify optimization
+
+**Example:**
+
+```cpp
+// Performance: Hot path needs optimization
+// Readability: Prefer function calls
+// Resolution: Use inline, compiler optimizes
+
+// ✅ GOOD - Inline function
+inline uint8_t fastReadPin(uint8_t pin) {
+  return (PINB >> pin) & 1;
+}
+
+// Compiler will inline, maintains readability
+void processInputs() {
+  if (fastReadPin(2)) {
+    // Handle input
+  }
+}
+```
+
+## Exception Documentation
+
+### When to Document Exceptions
+
+Document exceptions when:
+- Hardware constraints require deviation
+- Performance requirements override style
+- Platform limitations necessitate workarounds
+- Safety requirements override other rules
+
+### Exception Format
+
+```cpp
+// EXCEPTION: [Rule violated] - [Reason]
+// Hardware constraint: [Specific constraint]
+// Impact: [What this affects]
+// TODO: [Future improvement if applicable]
+
+// Example:
+// EXCEPTION: Code Style - Direct port manipulation
+// Hardware constraint: Pin toggle must be < 1us
+// Impact: Platform-specific code, less portable
+// TODO: Consider template-based abstraction if timing allows
+PORTB ^= (1 << PB5);
+```
+
+## Decision Process
+
+### Step 1: Identify Conflict
+
+- What rules are conflicting?
+- What are the constraints?
+- What are the requirements?
+
+### Step 2: Evaluate Priorities
+
+- Check priority hierarchy
+- Determine which constraint is more critical
+- Consider hardware limitations
+
+### Step 3: Find Solution
+
+- Look for compromise solution
+- Consider alternative approaches
+- Evaluate trade-offs
+
+### Step 4: Document Decision
+
+- Document why exception is needed
+- Explain the trade-off
+- Note any future improvements
+
+### Step 5: Review
+
+- Get code review approval
+- Verify solution works
+- Ensure exception is justified
+
+## Common Trade-offs
+
+### Memory vs Features
+
+- **Choose Memory**: When memory is critically limited
+- **Choose Features**: When memory is available
+- **Compromise**: Conditional compilation
+
+### Performance vs Readability
+
+- **Choose Performance**: In hot paths, ISRs
+- **Choose Readability**: In non-critical paths
+- **Compromise**: Inline functions, templates
+
+### Portability vs Optimization
+
+- **Choose Portability**: For multi-platform code
+- **Choose Optimization**: For platform-specific code
+- **Compromise**: Platform abstraction layer
+
+### Safety vs Performance
+
+- **Choose Safety**: Always in safety-critical systems
+- **Choose Performance**: Only when safety not affected
+- **Compromise**: Verify safety, optimize carefully
+
+## Best Practices Summary
+
+1. **Hardware First**: Hardware constraints override other rules
+2. **Safety Critical**: Safety requirements take highest priority
+3. **Document Exceptions**: Always document why exception is needed
+4. **Justify Trade-offs**: Explain the decision process
+5. **Review Required**: Get approval for exceptions
+6. **Future Improvements**: Note potential improvements
+7. **Measure Impact**: Verify exception is necessary
+8. **Consider Alternatives**: Explore other solutions first
+9. **Minimize Exceptions**: Keep exceptions to minimum
+10. **Update Guidelines**: Consider updating guidelines if exception is common

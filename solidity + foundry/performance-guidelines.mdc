@@ -1,0 +1,451 @@
+---
+description: Gas optimization and performance best practices for Solidity smart contracts
+globs:
+  - "**/*.sol"
+alwaysApply: true
+---
+
+# Performance Guidelines
+
+## Philosophy
+
+Gas optimization is important but **never at the expense of security or code clarity**. Optimize gas usage while maintaining security, readability, and maintainability.
+
+## Gas Costs Overview
+
+Understanding gas costs helps optimize:
+
+- **Storage Operations:**
+  - SSTORE (write): 20,000 gas (first time), 5,000 gas (update), 2,900 gas (delete)
+  - SLOAD (read): 2,100 gas
+- **Memory Operations:**
+  - Memory expansion: 3 gas per word
+- **Calldata:**
+  - Calldata: 4 gas per byte (non-zero), 16 gas per byte (zero)
+- **External Calls:**
+  - CALL: 2,100 gas base + gas for execution
+- **Events:**
+  - LOG0: 375 gas base + 375 per topic + 8 per byte data
+
+## Storage Optimization
+
+### 1. Pack Structs
+
+Pack struct members to fit in single storage slot:
+
+```solidity
+// ❌ BAD - Wastes storage slots
+struct User {
+    uint128 balance;      // Slot 1 (uses 128 bits)
+    uint256 timestamp;    // Slot 2 (uses 256 bits)
+    bool active;          // Slot 3 (uses 8 bits)
+}
+// Total: 3 storage slots
+
+// ✅ GOOD - Packed efficiently
+struct User {
+    uint128 balance;      // Slot 1 (128 bits)
+    uint64 timestamp;     // Slot 1 (64 bits)
+    bool active;          // Slot 1 (8 bits)
+    // Total: 1 storage slot (256 bits)
+}
+// Total: 1 storage slot
+
+// ✅ GOOD - Packed with uint256
+struct User {
+    uint128 balance;      // Slot 1 (128 bits)
+    uint128 timestamp;    // Slot 1 (128 bits)
+    bool active;          // Slot 2 (8 bits)
+    address owner;        // Slot 2 (160 bits)
+    // Total: 2 storage slots
+}
+```
+
+### 2. Use Immutable Variables
+
+Immutable variables are stored in bytecode, not storage:
+
+```solidity
+// ✅ GOOD - Immutable (stored in bytecode)
+contract Token {
+    address public immutable owner;
+    uint256 public immutable maxSupply;
+    
+    constructor(address _owner, uint256 _maxSupply) {
+        owner = _owner;
+        maxSupply = _maxSupply;
+    }
+}
+
+// ❌ BAD - Storage variable
+contract Token {
+    address public owner;
+    uint256 public maxSupply;
+    
+    constructor(address _owner, uint256 _maxSupply) {
+        owner = _owner;
+        maxSupply = _maxSupply;
+    }
+}
+```
+
+### 3. Cache Storage Reads
+
+Cache storage reads in loops:
+
+```solidity
+// ❌ BAD - Multiple storage reads
+function processUsers() external {
+    for (uint256 i = 0; i < users.length; i++) {
+        balances[users[i]] += 1;  // Storage read + write per iteration
+    }
+}
+
+// ✅ GOOD - Cache storage reads
+function processUsers() external {
+    uint256 userCount = users.length;  // Cache length
+    for (uint256 i = 0; i < userCount; i++) {
+        address user = users[i];  // Cache array read
+        balances[user] += 1;  // Single storage operation
+    }
+}
+
+// ✅ GOOD - Cache complex storage reads
+function updateBalances() external {
+    uint256 senderBalance = balances[msg.sender];  // Cache read
+    uint256 recipientBalance = balances[recipient];  // Cache read
+    
+    senderBalance -= amount;
+    recipientBalance += amount;
+    
+    balances[msg.sender] = senderBalance;  // Single write
+    balances[recipient] = recipientBalance;  // Single write
+}
+```
+
+### 4. Use Events Instead of Storage for Logs
+
+Events are cheaper than storage for logging:
+
+```solidity
+// ❌ BAD - Storage for logging
+mapping(address => uint256[]) public transferHistory;
+
+function transfer(address to, uint256 amount) external {
+    balances[msg.sender] -= amount;
+    balances[to] += amount;
+    transferHistory[msg.sender].push(amount);  // Expensive storage write
+}
+
+// ✅ GOOD - Events for logging
+event Transfer(address indexed from, address indexed to, uint256 value);
+
+function transfer(address to, uint256 amount) external {
+    balances[msg.sender] -= amount;
+    balances[to] += amount;
+    emit Transfer(msg.sender, to, amount);  // Cheaper event
+}
+```
+
+## Memory Optimization
+
+### 1. Use Calldata for External Functions
+
+Calldata is cheaper than memory:
+
+```solidity
+// ✅ GOOD - Calldata for external functions
+function processData(bytes calldata data) external {
+    // data is in calldata (cheaper)
+}
+
+// ❌ BAD - Memory for external functions
+function processData(bytes memory data) external {
+    // data copied to memory (more expensive)
+}
+
+// ✅ GOOD - Memory for internal functions
+function processDataInternal(bytes memory data) internal {
+    // Memory is fine for internal functions
+}
+```
+
+### 2. Reuse Memory
+
+Reuse memory arrays when possible:
+
+```solidity
+// ✅ GOOD - Reuse memory
+function processBatch(uint256[] calldata input) external pure returns (uint256[] memory) {
+    uint256[] memory result = new uint256[](input.length);
+    for (uint256 i = 0; i < input.length; i++) {
+        result[i] = input[i] * 2;
+    }
+    return result;
+}
+```
+
+### 3. Avoid Unnecessary Memory Copies
+
+```solidity
+// ❌ BAD - Unnecessary copy
+function process(uint256[] memory data) external {
+    uint256[] memory copy = data;  // Unnecessary copy
+    // ...
+}
+
+// ✅ GOOD - Use directly
+function process(uint256[] memory data) external {
+    // Use data directly
+    // ...
+}
+```
+
+## Loop Optimization
+
+### 1. Cache Array Length
+
+```solidity
+// ❌ BAD - Read length in each iteration
+function processArray(uint256[] memory array) external {
+    for (uint256 i = 0; i < array.length; i++) {  // Length read each iteration
+        // ...
+    }
+}
+
+// ✅ GOOD - Cache length
+function processArray(uint256[] memory array) external {
+    uint256 length = array.length;  // Cache length
+    for (uint256 i = 0; i < length; i++) {
+        // ...
+    }
+}
+```
+
+### 2. Unchecked Arithmetic in Loops
+
+Use unchecked blocks when overflow is impossible:
+
+```solidity
+// ✅ GOOD - Unchecked increment (safe in loops)
+function processArray(uint256[] memory array) external {
+    uint256 length = array.length;
+    for (uint256 i = 0; i < length;) {
+        // Process array[i]
+        unchecked {
+            i++;  // Safe: i < length, so i++ won't overflow
+        }
+    }
+}
+```
+
+### 3. Batch Operations
+
+Batch operations reduce external calls:
+
+```solidity
+// ❌ BAD - Multiple external calls
+function transferMultiple(address[] calldata recipients, uint256[] calldata amounts) external {
+    for (uint256 i = 0; i < recipients.length; i++) {
+        transfer(recipients[i], amounts[i]);  // External call per iteration
+    }
+}
+
+// ✅ GOOD - Single function with batching
+function transferMultiple(address[] calldata recipients, uint256[] calldata amounts) external {
+    require(recipients.length == amounts.length, "Arrays length mismatch");
+    
+    uint256 totalAmount = 0;
+    for (uint256 i = 0; i < amounts.length; i++) {
+        totalAmount += amounts[i];
+    }
+    
+    require(balances[msg.sender] >= totalAmount, "Insufficient balance");
+    balances[msg.sender] -= totalAmount;
+    
+    for (uint256 i = 0; i < recipients.length; i++) {
+        balances[recipients[i]] += amounts[i];
+    }
+}
+```
+
+## Function Optimization
+
+### 1. Minimize External Calls
+
+```solidity
+// ❌ BAD - Multiple external calls
+function getTotalBalance(address[] calldata tokens) external view returns (uint256) {
+    uint256 total = 0;
+    for (uint256 i = 0; i < tokens.length; i++) {
+        total += IERC20(tokens[i]).balanceOf(address(this));  // External call per iteration
+    }
+    return total;
+}
+
+// ✅ GOOD - Batch external calls if possible
+// Or cache results if called multiple times
+```
+
+### 2. Use View/Pure When Possible
+
+```solidity
+// ✅ GOOD - Pure function (no storage access)
+function calculate(uint256 a, uint256 b) public pure returns (uint256) {
+    return a + b;
+}
+
+// ✅ GOOD - View function (read-only)
+function getBalance(address account) public view returns (uint256) {
+    return balances[account];
+}
+```
+
+### 3. Short-Circuit Evaluation
+
+```solidity
+// ✅ GOOD - Short-circuit evaluation
+function canTransfer(address from, address to, uint256 amount) external view returns (bool) {
+    return from != address(0) && 
+           to != address(0) && 
+           balances[from] >= amount;
+    // If first condition fails, rest not evaluated
+}
+```
+
+## Compiler Optimization
+
+### Foundry Configuration
+
+```toml
+[profile.default]
+optimizer = true
+optimizer_runs = 200  # Balance between gas and bytecode size
+via_ir = false  # Use IR-based codegen for complex contracts if needed
+```
+
+### Optimizer Runs
+
+- **Low (100-200):** Smaller bytecode, slightly more gas
+- **Medium (200-1000):** Balance
+- **High (1000+):** More gas optimization, larger bytecode
+
+## Gas Profiling
+
+### Using Foundry Gas Reports
+
+```bash
+# Generate gas report
+forge test --gas-report
+
+# Snapshot gas in tests
+function test_Gas_Transfer() public {
+    snapStart("transfer");
+    token.transfer(address(1), 100);
+    snapEnd();
+}
+```
+
+### Manual Gas Measurement
+
+```solidity
+function test_Gas() public {
+    uint256 gasBefore = gasleft();
+    token.transfer(address(1), 100);
+    uint256 gasUsed = gasBefore - gasleft();
+    console.log("Gas used:", gasUsed);
+}
+```
+
+## Best Practices
+
+### 1. Profile Before Optimizing
+
+```solidity
+// Always measure gas before optimizing
+// Use forge test --gas-report
+// Optimize hotspots, not everything
+```
+
+### 2. Balance Gas vs Readability
+
+```solidity
+// ✅ GOOD - Readable and efficient
+function transfer(address to, uint256 amount) external {
+    require(to != address(0), "Invalid recipient");
+    uint256 senderBalance = balances[msg.sender];
+    require(senderBalance >= amount, "Insufficient balance");
+    
+    balances[msg.sender] = senderBalance - amount;
+    balances[to] += amount;
+}
+
+// ❌ BAD - Over-optimized, hard to read
+function transfer(address to, uint256 amount) external {
+    unchecked {
+        balances[msg.sender] -= amount;
+        balances[to] += amount;
+    }
+}
+```
+
+### 3. Use Libraries for Reusable Code
+
+```solidity
+// ✅ GOOD - Library for reusable code
+library Math {
+    function max(uint256 a, uint256 b) internal pure returns (uint256) {
+        return a > b ? a : b;
+    }
+}
+
+contract Token {
+    using Math for uint256;
+    
+    function getMax(uint256 a, uint256 b) external pure returns (uint256) {
+        return a.max(b);
+    }
+}
+```
+
+### 4. Avoid Unnecessary Operations
+
+```solidity
+// ❌ BAD - Unnecessary operation
+function getBalance(address account) external view returns (uint256) {
+    return balances[account] + 0;  // Unnecessary addition
+}
+
+// ✅ GOOD - Direct return
+function getBalance(address account) external view returns (uint256) {
+    return balances[account];
+}
+```
+
+## Gas Optimization Checklist
+
+Before deploying, consider:
+
+- [ ] Structs packed efficiently
+- [ ] Immutable variables used where possible
+- [ ] Storage reads cached in loops
+- [ ] Events used instead of storage for logs
+- [ ] Calldata used for external function parameters
+- [ ] Array lengths cached
+- [ ] Unchecked blocks used where safe
+- [ ] Batch operations implemented
+- [ ] External calls minimized
+- [ ] View/pure functions used appropriately
+- [ ] Compiler optimizer enabled
+- [ ] Gas profiling performed
+
+## Remember
+
+- **Profile First** - Measure before optimizing
+- **Security First** - Never optimize at expense of security
+- **Readability Matters** - Don't over-optimize
+- **Cache Storage** - Especially in loops
+- **Pack Structs** - Reduce storage slots
+- **Use Immutable** - For constants
+- **Events Over Storage** - For logging
+- **Batch Operations** - Reduce external calls

@@ -1,0 +1,178 @@
+---
+description: Frontend technology stack, libraries, and usage patterns
+globs:
+  - "**/components/**"
+  - "**/pages/**"
+  - "**/*.tsx"
+  - "**/styles/**"
+alwaysApply: true
+---
+
+# Frontend Technology Stack
+
+## Overview
+
+This document defines the frontend technologies, libraries, and patterns used in the application. All frontend code should align with these specifications.
+
+## UI Library
+
+**Library:** [Chakra UI](https://chakra-ui.com/)
+
+- Used for building user interface components
+- Handles styling, theming, and color modes
+- Custom theme defined in `src/styles/CustomTheme.tsx`
+- Provides accessible, composable components out of the box
+
+**Usage Pattern:**
+
+```typescript
+import { Box, Button, Text, VStack } from '@chakra-ui/react';
+
+export function MyComponent() {
+  return (
+    <Box p={4}>
+      <VStack spacing={4}>
+        <Text>Hello World</Text>
+        <Button colorScheme="blue">Click me</Button>
+      </VStack>
+    </Box>
+  );
+}
+```
+
+## Styling
+
+**Approach:** Multi-layered styling strategy
+
+1. **CSS Modules** - For component-specific styles (e.g., `calendar-styles.module.css`)
+2. **Chakra UI Style Props** - For inline styling using Chakra's prop-based API
+3. **Emotion** - Via Chakra UI for advanced styling needs
+4. **Global Styles** - Defined in `src/styles/globals.css`
+
+**When to Use Each:**
+
+- **CSS Modules:** Complex component-specific styles, animations, or when you need CSS-specific features
+- **Chakra Props:** Quick styling, responsive design, theme integration
+- **Emotion:** Advanced dynamic styling, complex selectors, or when CSS Modules aren't sufficient
+
+## State Management
+
+**Global State:** [Zustand](https://github.com/pmndrs/zustand)
+
+- Used for global application state (e.g., `useUserDataStore`, `useCurrentPanel`)
+- See `state-management-patterns.mdc` for detailed patterns
+- Keep stores focused and use selective subscriptions for performance
+
+**Local State:** React hooks
+
+- Use `useState` for component-specific UI state
+- Use `useEffect` for side effects and lifecycle management
+- Keep UI-only state local, not in global stores
+
+**Example:**
+
+```typescript
+// Global state - Zustand
+import { useUserDataStore } from '@/stores/userStore';
+
+function UserProfile() {
+  const user = useUserDataStore((state) => state.user);
+  // ...
+}
+
+// Local state - React hooks
+function Dropdown() {
+  const [isOpen, setIsOpen] = useState(false);
+  // ...
+}
+```
+
+## Data Fetching (Client-Side)
+
+**Primary:** Standard `fetch` API wrapped in custom utilities
+
+- `authenticatedGet` - GET requests with auth headers
+- `authenticatedPost` - POST requests with auth headers
+- `safeFetch` - Fetch wrapper with error handling
+- Located in `src/utils/api/`
+
+**Secondary:** [Axios](https://axios-http.com/)
+
+- Used in specific cases (e.g., Twitter callback)
+- Only use when `fetch` utilities don't meet requirements
+
+**Example:**
+
+```typescript
+import { authenticatedGet, authenticatedPost } from '@/utils/api';
+
+// GET request
+const user = await authenticatedGet<User>('/api/users/me');
+
+// POST request
+const result = await authenticatedPost('/api/workflows', {
+  name: 'My Workflow',
+  steps: []
+});
+```
+
+## Form Handling
+
+**Library:** [React Hook Form](https://react-hook-form.com/)
+
+- Used for managing form state and validation
+- Examples: `SignUpForm`, `CharacterForm`
+- Integrates with Yup for schema validation
+- Provides performant form handling with minimal re-renders
+
+**Example:**
+
+```typescript
+import { useForm } from 'react-hook-form';
+import { yupResolver } from '@hookform/resolvers/yup';
+import { userSchema } from '@/schemas/userSchema';
+
+export function UserForm() {
+  const {
+    register,
+    handleSubmit,
+    formState: { errors }
+  } = useForm({
+    resolver: yupResolver(userSchema)
+  });
+
+  const onSubmit = async (data: FormData) => {
+    await createUser(data);
+  };
+
+  return (
+    <form onSubmit={handleSubmit(onSubmit)}>
+      {/* form fields */}
+    </form>
+  );
+}
+```
+
+## Drag & Drop
+
+**Library:** [React DnD](https://react-dnd.github.io/react-dnd/)
+
+- Used for reordering elements
+- Primary use case: Workflow builder (`WorkflowSteps`)
+- Provides accessible drag and drop functionality
+
+## Calendar
+
+**Library:** [React Calendar](https://github.com/wojtekmaj/react-calendar)
+
+- Used for date selection and calendar displays
+- Styled with CSS Modules (e.g., `calendar-styles.module.css`)
+
+## Best Practices
+
+1. **Component Organization:** Use modular component structure (see `key-architecture-patterns.mdc`)
+2. **State Management:** Prefer local state, use Zustand only for global concerns
+3. **Styling:** Use Chakra props first, CSS Modules for complex cases
+4. **Forms:** Always use React Hook Form with Yup validation
+5. **Data Fetching:** Use custom fetch utilities, not raw `fetch` or Axios directly
+6. **Accessibility:** Leverage Chakra UI's built-in accessibility features

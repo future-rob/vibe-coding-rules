@@ -1,0 +1,378 @@
+---
+description: Git workflow, commit message conventions, and version control best practices for embedded projects
+globs:
+  - "**/.git/**"
+  - "**/.gitignore"
+alwaysApply: true
+---
+
+# Git Workflow Guidelines
+
+## Commit Message Format
+
+Follow the [Conventional Commits](https://www.conventionalcommits.org/) specification for consistent commit messages.
+
+### Format
+
+```
+<type>(<scope>): <subject>
+
+<body>
+
+<footer>
+```
+
+### Types
+
+- **`feat`**: A new feature
+- **`fix`**: A bug fix
+- **`docs`**: Documentation only changes
+- **`style`**: Code style changes (formatting, missing semicolons, etc.)
+- **`refactor`**: Code refactoring without bug fixes or features
+- **`perf`**: Performance improvements
+- **`test`**: Adding or updating tests
+- **`chore`**: Maintenance tasks, dependency updates
+- **`build`**: Build system or PlatformIO configuration changes
+- **`ci`**: CI/CD configuration changes
+- **`hw`**: Hardware-specific changes or pin configuration updates
+
+### Examples
+
+```bash
+# Feature
+feat(sensors): add DHT22 temperature sensor support
+
+# Bug fix
+fix(i2c): resolve I2C bus lockup on ESP32
+
+# Hardware change
+hw(pins): update pin assignments for rev 2.0 board
+
+# Performance improvement
+perf(adc): optimize ADC reading with DMA transfer
+
+# Breaking change
+feat(hal)!: refactor hardware abstraction layer
+
+BREAKING CHANGE: Hardware abstraction API changed. All drivers must be updated.
+
+# Multiple changes
+feat(communication): add MQTT client support
+
+- Implement MQTT publish/subscribe
+- Add connection retry logic
+- Update network configuration
+```
+
+### Scope
+
+Use scope to indicate which part of the codebase is affected:
+
+- `hal`: Hardware abstraction layer
+- `drivers`: Device drivers
+- `sensors`: Sensor integration
+- `communication`: Serial, I2C, SPI, network protocols
+- `power`: Power management
+- `interrupts`: Interrupt handling
+- `memory`: Memory management
+- `config`: Configuration files
+- `hw`: Hardware/pin configuration
+- `build`: Build system (platformio.ini)
+- `tests`: Test files
+
+### Subject
+
+- Use imperative mood ("add" not "added" or "adds")
+- First line should be 50 characters or less
+- Don't end with a period
+- Be specific and descriptive
+- Include hardware/platform if relevant
+
+### Body (Optional)
+
+- Explain the "what" and "why" vs "how"
+- Wrap at 72 characters
+- Can include multiple paragraphs
+- Document hardware assumptions or pin changes
+- Note timing constraints or memory implications
+
+### Footer (Optional)
+
+- Reference issues: `Closes #123`, `Fixes #456`
+- Breaking changes: `BREAKING CHANGE: <description>`
+- Hardware notes: `Hardware: Requires board revision 2.0+`
+
+## Branch Naming
+
+### Format
+
+```
+<type>/<description>
+```
+
+### Types
+
+- `feature/`: New features
+- `fix/`: Bug fixes
+- `hotfix/`: Critical production fixes
+- `refactor/`: Code refactoring
+- `docs/`: Documentation updates
+- `test/`: Test additions/updates
+- `hw/`: Hardware-specific changes
+
+### Examples
+
+```bash
+feature/dht22-sensor-support
+fix/i2c-bus-lockup
+hotfix/critical-memory-leak
+refactor/hardware-abstraction
+hw/update-pin-assignments
+```
+
+## Commit Best Practices
+
+### ✅ DO
+
+- Make atomic commits (one logical change per commit)
+- Write clear, descriptive commit messages
+- Commit frequently (small, incremental changes)
+- Test on hardware before committing
+- Run `pio check` before committing
+- Review your changes with `git diff` before committing
+- Document hardware requirements in commit message
+- Include pin configuration changes in commit message
+- Commit platformio.ini changes separately from code
+
+### ❌ DON'T
+
+- Commit commented-out code
+- Commit debugging code or Serial.print statements
+- Commit with compiler warnings (see `no-hiding.mdc`)
+- Mix unrelated changes in one commit
+- Commit secrets, API keys, or WiFi credentials
+- Force push to main/master branch
+- Commit without testing on hardware
+- Commit binary files (.bin, .hex, .elf)
+- Commit build artifacts
+
+## .gitignore for Embedded Projects
+
+```gitignore
+# PlatformIO
+.pio/
+.vscode/
+.idea/
+
+# Build artifacts
+*.bin
+*.hex
+*.elf
+*.map
+*.lst
+
+# Compiled Object files
+*.o
+*.obj
+*.a
+*.lib
+
+# Preprocessor output
+*.i
+*.ii
+
+# Assembly listings
+*.s
+*.S
+
+# Debug files
+*.dSYM/
+*.su
+*.idb
+*.pdb
+
+# IDE files
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Environment files
+.env
+.env.local
+secrets.h
+
+# Test coverage
+*.gcda
+*.gcno
+*.gcov
+
+# Documentation builds
+docs/_build/
+```
+
+## Workflow
+
+### 1. Create Feature Branch
+
+```bash
+git checkout -b feature/my-new-feature
+```
+
+### 2. Make Changes
+
+- Write code following all guidelines
+- Test on hardware
+- Run `pio check` to verify no warnings
+- Test on multiple platforms if applicable
+
+### 3. Stage Changes
+
+```bash
+# Review what will be committed
+git status
+git diff
+
+# Stage specific files
+git add src/sensor.cpp src/sensor.h
+
+# Or stage all changes
+git add .
+```
+
+### 4. Commit
+
+```bash
+git commit -m "feat(sensors): add DHT22 temperature sensor support"
+```
+
+### 5. Push Branch
+
+```bash
+git push origin feature/my-new-feature
+```
+
+### 6. Create Pull Request
+
+- Write clear PR description
+- Include hardware requirements
+- Note pin assignments if changed
+- Document testing performed
+- Reference related issues
+
+### 7. Code Review
+
+- Address review comments
+- Test changes on hardware
+- Update PR description if needed
+
+### 8. Merge
+
+- Squash commits if requested
+- Delete feature branch after merge
+
+## Multi-Platform Development
+
+### Handling Multiple Environments
+
+```bash
+# Test on multiple platforms
+pio run -e esp32dev
+pio run -e arduino_uno
+pio run -e stm32
+
+# Commit platform-specific changes
+git commit -m "hw(esp32): add WiFi configuration for ESP32"
+git commit -m "hw(avr): optimize for 8-bit AVR memory constraints"
+```
+
+### Platform-Specific Branches
+
+```bash
+# For major platform differences
+git checkout -b platform/esp32-specific-features
+git checkout -b platform/avr-optimizations
+```
+
+## Hardware Configuration Management
+
+### Pin Configuration
+
+```bash
+# Pin changes should be clearly documented
+git commit -m "hw(pins): update I2C pins for rev 2.0 board
+
+- SDA: Pin 4 -> Pin 21 (ESP32 default)
+- SCL: Pin 5 -> Pin 22 (ESP32 default)
+- Requires hardware revision 2.0 or later"
+```
+
+### Board Variants
+
+```bash
+# Document board-specific configurations
+git commit -m "hw(config): add support for Arduino Nano 33 IoT
+
+- Update pin definitions
+- Add board-specific initialization
+- Tested on hardware"
+```
+
+## Version Tagging
+
+### Semantic Versioning
+
+```bash
+# Tag releases
+git tag -a v1.0.0 -m "Release version 1.0.0
+
+- Stable sensor reading implementation
+- Tested on ESP32 and Arduino Uno
+- Hardware requirements: Board rev 2.0+"
+
+# Push tags
+git push origin v1.0.0
+```
+
+### Release Notes
+
+Include in release notes:
+- Hardware requirements
+- Pin configuration changes
+- Known limitations
+- Migration guide if breaking changes
+
+## Pre-Commit Hooks
+
+### Setup
+
+```bash
+# Install pre-commit hook
+cat > .git/hooks/pre-commit << 'EOF'
+#!/bin/bash
+# Run PlatformIO check
+pio check || exit 1
+
+# Check for common issues
+if grep -r "Serial.print" src/ --include="*.cpp" --include="*.h"; then
+  echo "Warning: Serial.print found. Ensure DEBUG_LEVEL is set appropriately."
+fi
+
+exit 0
+EOF
+
+chmod +x .git/hooks/pre-commit
+```
+
+## Best Practices Summary
+
+1. **Atomic Commits**: One logical change per commit
+2. **Clear Messages**: Descriptive commit messages with context
+3. **Hardware Testing**: Test on actual hardware before committing
+4. **No Warnings**: Fix all compiler warnings before committing
+5. **Document Hardware**: Include hardware requirements in commits
+6. **Pin Changes**: Clearly document pin configuration changes
+7. **Multi-Platform**: Test on all target platforms
+8. **Version Tags**: Tag releases with semantic versioning
+9. **Clean History**: Keep commit history clean and meaningful
+10. **Review Process**: Follow code review guidelines before merging

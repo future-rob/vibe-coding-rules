@@ -1,0 +1,452 @@
+---
+description: Accessibility (a11y) guidelines and best practices for inclusive web applications
+globs:
+  - "**/*.tsx"
+  - "**/components/**"
+alwaysApply: true
+---
+
+# Accessibility Guidelines
+
+## Philosophy
+
+Accessibility ensures that our application is usable by everyone, including people with disabilities. This includes visual, auditory, motor, and cognitive impairments. Accessibility is not optional—it's a requirement for inclusive design.
+
+## Core Principles
+
+1. **Perceivable**: Information must be presentable in ways users can perceive
+2. **Operable**: Interface components must be operable
+3. **Understandable**: Information and UI operation must be understandable
+4. **Robust**: Content must be robust enough for assistive technologies
+
+## Chakra UI Accessibility
+
+Chakra UI provides excellent accessibility out of the box, but we must use it correctly:
+
+### ✅ DO
+
+```typescript
+// ✅ Proper semantic HTML with Chakra
+<Button aria-label="Close dialog">×</Button>
+<Input aria-describedby="email-error" />
+<Alert role="alert">Error message</Alert>
+
+// ✅ Proper heading hierarchy
+<Heading as="h1">Main Title</Heading>
+<Heading as="h2">Section Title</Heading>
+
+// ✅ Accessible form labels
+<FormControl>
+  <FormLabel htmlFor="email">Email Address</FormLabel>
+  <Input id="email" type="email" />
+  <FormErrorMessage>Error message</FormErrorMessage>
+</FormControl>
+```
+
+### ❌ DON'T
+
+```typescript
+// ❌ Missing labels
+<Input placeholder="Enter email" /> // Screen readers can't read placeholder
+
+// ❌ Wrong heading levels
+<Heading as="h3">Main Title</Heading> // Should be h1
+
+// ❌ Decorative icons without labels
+<IconButton icon={<CloseIcon />} /> // Missing aria-label
+```
+
+## Semantic HTML
+
+Use proper HTML elements for their intended purpose:
+
+```typescript
+// ✅ GOOD - Semantic elements
+<nav>
+  <Link href="/">Home</Link>
+</nav>
+
+<main>
+  <article>
+    <h1>Article Title</h1>
+    <p>Content</p>
+  </article>
+</main>
+
+<footer>
+  <p>Copyright</p>
+</footer>
+
+// ❌ BAD - Div soup
+<div onClick={handleClick}>Click me</div>
+<div className="header">Title</div>
+```
+
+## ARIA Attributes
+
+Use ARIA attributes when semantic HTML isn't sufficient:
+
+### Common ARIA Patterns
+
+```typescript
+// ✅ Button that looks like a link
+<Button as="a" href="/page" role="link">
+  Go to page
+</Button>
+
+// ✅ Loading state
+<Button isLoading aria-busy={isLoading}>
+  Submit
+</Button>
+
+// ✅ Error state
+<Input
+  aria-invalid={hasError}
+  aria-describedby={hasError ? "error-id" : undefined}
+/>
+
+// ✅ Modal/Dialog
+<Modal isOpen={isOpen} onClose={onClose}>
+  <ModalOverlay />
+  <ModalContent role="dialog" aria-labelledby="modal-title">
+    <ModalHeader id="modal-title">Title</ModalHeader>
+    <ModalBody>Content</ModalBody>
+  </ModalContent>
+</Modal>
+```
+
+### ARIA Labels
+
+```typescript
+// ✅ Icon buttons need labels
+<IconButton
+  icon={<CloseIcon />}
+  aria-label="Close dialog"
+/>
+
+// ✅ Decorative images
+<Image
+  src="/decorative.jpg"
+  alt="" // Empty for decorative images
+  role="presentation"
+/>
+
+// ✅ Informative images
+<Image
+  src="/chart.jpg"
+  alt="Sales increased 25% from Q1 to Q2"
+/>
+```
+
+## Keyboard Navigation
+
+All interactive elements must be keyboard accessible:
+
+```typescript
+// ✅ Proper keyboard support
+<Button
+  onClick={handleClick}
+  onKeyDown={(e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      handleClick();
+    }
+  }}
+>
+  Click me
+</Button>
+
+// ✅ Focus management
+const initialFocusRef = useRef<HTMLInputElement>(null);
+
+<Modal initialFocusRef={initialFocusRef}>
+  <ModalContent>
+    <Input ref={initialFocusRef} />
+  </ModalContent>
+</Modal>
+
+// ✅ Skip links
+<Link
+  href="#main-content"
+  position="absolute"
+  left="-9999px"
+  _focus={{ left: 0 }}
+>
+  Skip to main content
+</Link>
+```
+
+## Focus Management
+
+### Visible Focus Indicators
+
+```typescript
+// ✅ Chakra UI provides focus styles by default
+<Button>Click me</Button> // Has visible focus ring
+
+// ✅ Custom focus styles if needed
+<Box
+  _focus={{
+    outline: '2px solid',
+    outlineColor: 'blue.500',
+    outlineOffset: '2px',
+  }}
+>
+  Focusable element
+</Box>
+```
+
+### Focus Trapping
+
+```typescript
+// ✅ Modal traps focus
+<Modal isOpen={isOpen}>
+  <ModalContent>
+    {/* Focus stays within modal */}
+  </ModalContent>
+</Modal>
+```
+
+### Focus Order
+
+- Logical tab order (top to bottom, left to right)
+- Skip links for main content
+- Focus visible on all interactive elements
+
+## Color Contrast
+
+### Text Contrast
+
+- **Normal text**: Minimum 4.5:1 contrast ratio
+- **Large text** (18pt+): Minimum 3:1 contrast ratio
+- **UI components**: Minimum 3:1 contrast ratio
+
+```typescript
+// ✅ Good contrast
+<Text color="gray.800" bg="white">Readable text</Text>
+
+// ❌ Poor contrast
+<Text color="gray.300" bg="white">Hard to read</Text>
+```
+
+### Don't Rely on Color Alone
+
+```typescript
+// ❌ BAD - Color only
+<Text color="red">Error: Invalid email</Text>
+
+// ✅ GOOD - Color + icon/text
+<HStack>
+  <AlertIcon color="red.500" />
+  <Text>Error: Invalid email</Text>
+</HStack>
+```
+
+## Forms
+
+### Proper Form Structure
+
+```typescript
+// ✅ Accessible form
+<FormControl isInvalid={hasError}>
+  <FormLabel htmlFor="email">Email Address</FormLabel>
+  <Input
+    id="email"
+    type="email"
+    aria-describedby={hasError ? "email-error" : "email-help"}
+    aria-invalid={hasError}
+  />
+  {hasError ? (
+    <FormErrorMessage id="email-error">
+      Please enter a valid email address
+    </FormErrorMessage>
+  ) : (
+    <FormHelperText id="email-help">
+      We'll never share your email
+    </FormHelperText>
+  )}
+</FormControl>
+```
+
+### Required Fields
+
+```typescript
+// ✅ Clear required indication
+<FormLabel>
+  Email Address <Text as="span" color="red.500" aria-label="required">*</Text>
+</FormLabel>
+<Input required aria-required="true" />
+```
+
+## Images and Media
+
+### Alt Text Guidelines
+
+```typescript
+// ✅ Descriptive alt text
+<Image
+  src="/user-profile.jpg"
+  alt="Sarah Johnson, software engineer, smiling"
+/>
+
+// ✅ Decorative images
+<Image
+  src="/decorative-pattern.jpg"
+  alt=""
+  role="presentation"
+/>
+
+// ✅ Complex images (charts, graphs)
+<Image
+  src="/sales-chart.jpg"
+  alt="Line chart showing sales increased from $50k in January to $75k in March"
+/>
+```
+
+### Video and Audio
+
+```typescript
+// ✅ Video with captions
+<video controls>
+  <source src="video.mp4" type="video/mp4" />
+  <track kind="captions" src="captions.vtt" />
+</video>
+
+// ✅ Audio with transcripts
+<audio controls>
+  <source src="audio.mp3" type="audio/mpeg" />
+</audio>
+<a href="/transcript.txt">View transcript</a>
+```
+
+## Dynamic Content
+
+### Live Regions
+
+```typescript
+// ✅ Announce dynamic updates
+<Box role="status" aria-live="polite" aria-atomic="true">
+  {statusMessage}
+</Box>
+
+// ✅ Alert for important updates
+<Alert status="success" role="alert">
+  Profile updated successfully
+</Alert>
+```
+
+### Loading States
+
+```typescript
+// ✅ Loading state with announcement
+<Box role="status" aria-live="polite">
+  {isLoading ? 'Loading...' : 'Content loaded'}
+</Box>
+
+// ✅ Skeleton loaders
+<Skeleton height="20px" />
+```
+
+## Testing Accessibility
+
+### Manual Testing
+
+1. **Keyboard Navigation**
+   - Tab through all interactive elements
+   - Ensure logical focus order
+   - Verify all actions work with keyboard
+
+2. **Screen Reader Testing**
+   - Use NVDA (Windows) or VoiceOver (Mac)
+   - Navigate through the page
+   - Verify all content is announced
+
+3. **Color Contrast**
+   - Use browser DevTools or contrast checker
+   - Verify all text meets WCAG AA standards
+
+### Automated Testing
+
+```typescript
+// Use @axe-core/react for automated a11y testing
+import { axe, toHaveNoViolations } from 'jest-axe';
+
+expect.extend(toHaveNoViolations);
+
+test('should not have accessibility violations', async () => {
+  const { container } = render(<MyComponent />);
+  const results = await axe(container);
+  expect(results).toHaveNoViolations();
+});
+```
+
+## Common Patterns
+
+### Accessible Dropdown Menu
+
+```typescript
+<Menu>
+  <MenuButton as={Button} rightIcon={<ChevronDownIcon />}>
+    Actions
+  </MenuButton>
+  <MenuList>
+    <MenuItem>Edit</MenuItem>
+    <MenuItem>Delete</MenuItem>
+  </MenuList>
+</Menu>
+```
+
+### Accessible Modal
+
+```typescript
+<Modal isOpen={isOpen} onClose={onClose}>
+  <ModalOverlay />
+  <ModalContent>
+    <ModalHeader>Modal Title</ModalHeader>
+    <ModalCloseButton />
+    <ModalBody>
+      Content
+    </ModalBody>
+    <ModalFooter>
+      <Button onClick={onClose}>Close</Button>
+    </ModalFooter>
+  </ModalContent>
+</Modal>
+```
+
+### Accessible Tabs
+
+```typescript
+<Tabs>
+  <TabList>
+    <Tab>Tab 1</Tab>
+    <Tab>Tab 2</Tab>
+  </TabList>
+  <TabPanels>
+    <TabPanel>Content 1</TabPanel>
+    <TabPanel>Content 2</TabPanel>
+  </TabPanels>
+</Tabs>
+```
+
+## WCAG Compliance
+
+Aim for **WCAG 2.1 Level AA** compliance:
+
+- **Level A**: Minimum requirements
+- **Level AA**: Standard compliance (our target)
+- **Level AAA**: Enhanced compliance (aspirational)
+
+## Resources
+
+- [WCAG 2.1 Guidelines](https://www.w3.org/WAI/WCAG21/quickref/)
+- [Chakra UI Accessibility](https://chakra-ui.com/docs/getting-started/accessibility)
+- [WebAIM Contrast Checker](https://webaim.org/resources/contrastchecker/)
+- [WAVE Browser Extension](https://wave.webaim.org/extension/)
+
+## Remember
+
+- **Accessibility is not optional** - it's a requirement
+- **Test with keyboard and screen readers**
+- **Don't rely on color alone**
+- **Use semantic HTML first, ARIA when needed**
+- **Chakra UI helps, but you must use it correctly**

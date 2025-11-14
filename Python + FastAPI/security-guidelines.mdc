@@ -1,0 +1,399 @@
+---
+description: Security best practices for Python FastAPI applications
+globs:
+  - "**/*.py"
+alwaysApply: true
+---
+
+# Security Guidelines
+
+## Authentication
+
+### JWT Tokens
+
+```python
+# app/core/security.py
+from datetime import datetime, timedelta
+from typing import Optional
+from jose import JWTError, jwt
+from passlib.context import CryptContext
+
+from app.core.config import settings
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """Verify a password against a hash."""
+    return pwd_context.verify(plain_password, hashed_password)
+
+
+def get_password_hash(password: str) -> str:
+    """Hash a password."""
+    return pwd_context.hash(password)
+
+
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
+    """Create a JWT access token."""
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(minutes=15)
+    
+    to_encode.update({"exp": expire, "iat": datetime.utcnow()})
+    encoded_jwt = jwt.encode(
+        to_encode,
+        settings.SECRET_KEY,
+        algorithm=settings.ALGORITHM
+    )
+    return encoded_jwt
+```
+
+### Token Validation
+
+```python
+# app/api/dependencies.py
+from fastapi import Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordBearer
+from jose import JWTError, jwt
+
+from app.core.config import settings
+from app.core.database import get_db
+from app.models.domain.user import User
+from app.repositories.user_repository import UserRepository
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/v1/auth/login")
+
+
+async def get_current_user(
+    token: str = Depends(oauth2_scheme),
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    """Get current authenticated user."""
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    
+    try:
+        payload = jwt.decode(
+            token,
+            settings.SECRET_KEY,
+            algorithms=[settings.ALGORITHM]
+        )
+        user_id: int = payload.get("sub")
+        if user_id is None:
+            raise credentials_exception
+    except JWTError:
+        raise credentials_exception
+    
+    user_repo = UserRepository(db)
+    user = await user_repo.get_by_id(user_id)
+    
+    if user is None or not user.is_active:
+        raise credentials_exception
+    
+    return user
+```
+
+## Authorization
+
+### Role-Based Access Control (RBAC)
+
+```python
+# app/core/permissions.py
+from enum import Enum
+from fastapi import HTTPException, status
+
+from app.models.domain.user import User
+
+
+class Role(str, Enum):
+    """User roles."""
+    ADMIN = "admin"
+    USER = "user"
+    MODERATOR = "moderator"
+
+
+def require_role(required_role: Role):
+    """Dependency to require specific role."""
+    async def role_checker(current_user: User = Depends(get_current_user)) -> User:
+        if current_user.role != required_role:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Requires {required_role.value} role"
+            )
+        return current_user
+    return role_checker
+
+# Usage
+@router.delete("/users/{user_id}")
+async def delete_user(
+    user_id: int,
+    current_user: User = Depends(require_role(Role.ADMIN)),
+):
+    """Delete user - requires admin role."""
+    pass
+```
+
+## Input Validation
+
+### Always Validate with Pydantic
+
+```python
+# ✅ GOOD - Pydantic validation
+from pydantic import BaseModel, EmailStr, Field, validator
+
+class UserCreate(BaseModel):
+    """User creation schema with validation."""
+    email: EmailStr  # Automatically validates email format
+    full_name: str = Field(..., min_length=1, max_length=255)
+    password: str = Field(..., min_length=8, max_length=100)
+    
+    @validator('password')
+    def validate_password_strength(cls, v):
+        """Validate password meets security requirements."""
+        if len(v) < 8:
+            raise ValueError('Password must be at least 8 characters')
+        if not any(c.isupper() for c in v):
+            raise ValueError('Password must contain uppercase letter')
+        if not any(c.islower() for c in v):
+            raise ValueError('Password must contain lowercase letter')
+        if not any(c.isdigit() for c in v):
+            raise ValueError('Password must contain digit')
+        return v
+
+# ❌ BAD - No validation
+@router.post("/users")
+async def create_user(email: str, password: str):  # No validation!
+    pass
+```
+
+## SQL Injection Prevention
+
+### Use ORM, Not Raw SQL
+
+```python
+# ❌ BAD - SQL injection risk
+query = f"SELECT * FROM users WHERE email = '{email}'"  # Vulnerable!
+result = await session.execute(text(query))
+
+# ✅ GOOD - Use ORM with parameters
+result = await session.execute(
+    select(User).where(User.email == email)  # Safe
+)
+
+# ✅ ACCEPTABLE - Parameterized raw SQL if needed
+query = text("SELECT * FROM users WHERE email = :email")
+result = await session.execute(query, {"email": email})  # Safe
+```
+
+## Secrets Management
+
+### Never Hardcode Secrets
+
+```python
+# ❌ BAD - Hardcoded secret
+SECRET_KEY = "my-secret-key-12345"  # Never do this!
+
+# ✅ GOOD - Environment variables
+from pydantic_settings import BaseSettings
+
+class Settings(BaseSettings):
+    """Application settings."""
+    SECRET_KEY: str
+    DATABASE_URL: str
+    REDIS_URL: str
+    
+    class Config:
+        env_file = ".env"
+        case_sensitive = True
+
+settings = Settings()
+```
+
+### Use Secret Managers in Production
+
+```python
+# ✅ GOOD - Use secret manager (AWS Secrets Manager, etc.)
+import boto3
+
+def get_secret(secret_name: str) -> str:
+    """Get secret from AWS Secrets Manager."""
+    client = boto3.client('secretsmanager')
+    response = client.get_secret_value(SecretId=secret_name)
+    return response['SecretString']
+```
+
+## CORS Configuration
+
+### Proper CORS Setup
+
+```python
+# app/main.py
+from fastapi.middleware.cors import CORSMiddleware
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.ALLOWED_ORIGINS,  # List of allowed origins
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
+    allow_headers=["*"],
+)
+```
+
+## Rate Limiting
+
+### Implement Rate Limiting
+
+```python
+# app/core/rate_limit.py
+from collections import defaultdict
+from datetime import datetime, timedelta
+from fastapi import HTTPException, status, Request
+from starlette.middleware.base import BaseHTTPMiddleware
+
+class RateLimitMiddleware(BaseHTTPMiddleware):
+    """Rate limiting middleware."""
+    
+    def __init__(self, app, calls: int = 100, period: int = 60):
+        super().__init__(app)
+        self.calls = calls
+        self.period = period
+        self.clients: dict[str, list[datetime]] = defaultdict(list)
+    
+    async def dispatch(self, request: Request, call_next):
+        client_ip = request.client.host
+        now = datetime.utcnow()
+        
+        # Clean old entries
+        self.clients[client_ip] = [
+            timestamp for timestamp in self.clients[client_ip]
+            if now - timestamp < timedelta(seconds=self.period)
+        ]
+        
+        # Check rate limit
+        if len(self.clients[client_ip]) >= self.calls:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Rate limit exceeded"
+            )
+        
+        # Add current request
+        self.clients[client_ip].append(now)
+        
+        response = await call_next(request)
+        return response
+```
+
+## Security Headers
+
+### Add Security Headers
+
+```python
+# app/core/middleware.py
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Add security headers to responses."""
+    
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        return response
+```
+
+## Data Sanitization
+
+### Sanitize User Input
+
+```python
+# ✅ GOOD - Sanitize HTML
+from html import escape
+
+def sanitize_html(text: str) -> str:
+    """Sanitize HTML input."""
+    return escape(text)
+
+# ✅ GOOD - Validate file uploads
+from fastapi import UploadFile
+
+@router.post("/upload")
+async def upload_file(file: UploadFile):
+    """Upload file with validation."""
+    # Check file type
+    allowed_types = ["image/jpeg", "image/png"]
+    if file.content_type not in allowed_types:
+        raise HTTPException(status_code=400, detail="Invalid file type")
+    
+    # Check file size (10MB limit)
+    contents = await file.read()
+    if len(contents) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File too large")
+    
+    # Process file
+    pass
+```
+
+## Logging Security
+
+### Never Log Sensitive Data
+
+```python
+# ❌ BAD - Logging sensitive data
+logger.info(f"User login: {email}, password: {password}")  # Never!
+
+# ✅ GOOD - Log safely
+logger.info(
+    "User login attempt",
+    extra={
+        "email": email,  # Email is usually OK
+        # Never log password, tokens, or secrets
+    }
+)
+
+# ❌ BAD - Logging full request body
+logger.debug(f"Request body: {request.body}")  # May contain secrets
+
+# ✅ GOOD - Log selectively
+logger.debug(
+    "API request",
+    extra={
+        "path": request.url.path,
+        "method": request.method,
+        # Don't log body if it may contain secrets
+    }
+)
+```
+
+## Best Practices Checklist
+
+- [ ] All passwords are hashed (never plain text)
+- [ ] JWT tokens have expiration times
+- [ ] Input validation with Pydantic on all endpoints
+- [ ] SQL injection prevented (use ORM)
+- [ ] Secrets in environment variables, not code
+- [ ] CORS properly configured
+- [ ] Rate limiting implemented
+- [ ] Security headers added
+- [ ] Sensitive data not logged
+- [ ] File uploads validated
+- [ ] Authentication on protected endpoints
+- [ ] Authorization checks in place
+
+## Remember
+
+- **Never trust user input** - Always validate
+- **Never log secrets** - Passwords, tokens, API keys
+- **Use ORM** - Prevent SQL injection
+- **Hash passwords** - Never store plain text
+- **Secure tokens** - Use JWT with expiration
+- **Environment variables** - For all secrets
+- **Rate limiting** - Prevent abuse
+- **Security headers** - Add protection headers

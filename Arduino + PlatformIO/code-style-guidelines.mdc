@@ -1,0 +1,700 @@
+---
+description: Code style guidelines and conventions for embedded C++ development
+globs:
+  - "**/*.cpp"
+  - "**/*.c"
+  - "**/*.h"
+  - "**/*.hpp"
+  - "**/*.ino"
+alwaysApply: true
+---
+
+# Code Style Guidelines
+
+## Overview
+
+Consistent code style improves readability, reduces errors, and makes collaboration easier. These guidelines are optimized for embedded C++ development, balancing clarity with the constraints of resource-limited systems.
+
+## Naming Conventions
+
+### General Rules
+
+```cpp
+// ✅ GOOD - Descriptive names
+uint16_t sensorReadingCount;
+float temperatureCelsius;
+bool isMotorRunning;
+
+// ❌ BAD - Abbreviated or unclear names
+uint16_t src;  // What is src?
+float temp;    // Temperature? Temporary?
+bool flag;     // What flag?
+
+// ❌ BAD - Hungarian notation (avoid in modern C++)
+uint16_t u16Count;
+float fTemperature;
+bool bRunning;
+```
+
+### Specific Conventions
+
+```cpp
+// Constants - SCREAMING_SNAKE_CASE
+constexpr uint16_t MAX_BUFFER_SIZE = 256;
+constexpr uint32_t DEFAULT_BAUD_RATE = 115200;
+const char DEVICE_NAME[] PROGMEM = "Sensor Node";
+
+// Macros - SCREAMING_SNAKE_CASE (but prefer constexpr)
+#define DEBUG_LEVEL 2
+#define PIN_LED 13
+
+// Classes - PascalCase
+class TemperatureSensor {
+    // ...
+};
+
+class SerialProtocol {
+    // ...
+};
+
+// Functions - camelCase
+void initializeSensors();
+float readTemperature();
+bool validateChecksum(uint8_t* data, size_t length);
+
+// Variables - camelCase
+uint32_t lastUpdateTime;
+float currentTemperature;
+bool systemReady;
+
+// Member variables - camelCase with underscore suffix (optional but recommended)
+class Sensor {
+private:
+    uint8_t address_;
+    float calibrationOffset_;
+    bool initialized_;
+};
+
+// Enums - PascalCase for type, SCREAMING_SNAKE_CASE for values
+enum class SystemState : uint8_t {
+    IDLE = 0,
+    INITIALIZING = 1,
+    RUNNING = 2,
+    ERROR = 3,
+    SHUTDOWN = 4
+};
+
+// Namespaces - lowercase
+namespace sensors {
+namespace temperature {
+    class DS18B20 {};
+} // namespace temperature
+} // namespace sensors
+
+// Template parameters - PascalCase for types, lowercase for values
+template<typename DataType, size_t bufferSize>
+class CircularBuffer {
+    // ...
+};
+
+// Pin names - Descriptive with common prefixes
+constexpr uint8_t PIN_BUTTON_START = 2;
+constexpr uint8_t PIN_LED_STATUS = 13;
+constexpr uint8_t PIN_SENSOR_DATA = A0;
+constexpr uint8_t PIN_I2C_SDA = 21;
+constexpr uint8_t PIN_I2C_SCL = 22;
+
+// File names - snake_case
+// temperature_sensor.h
+// serial_protocol.cpp
+// main.cpp
+```
+
+## Formatting
+
+### Indentation and Spacing
+
+```cpp
+// Use 2 spaces for indentation (no tabs)
+void processData() {
+  if (dataReady) {
+    for (uint8_t i = 0; i < bufferSize; i++) {
+      processedData[i] = rawData[i] * scaleFactor;
+    }
+  }
+}
+
+// Spaces around operators
+int sum = a + b;
+bool isValid = (value >= MIN_VALUE) && (value <= MAX_VALUE);
+uint8_t masked = data & 0x0F;
+
+// No space after function names
+calculateChecksum();  // ✅
+calculateChecksum (); // ❌
+
+// Space after keywords
+if (condition) {    // ✅
+if(condition) {     // ❌
+
+for (int i = 0; i < 10; i++) {  // ✅
+for(int i=0;i<10;i++) {         // ❌
+
+// Pointer and reference alignment
+uint8_t* ptr;   // ✅ Aligned with type
+uint8_t *ptr;   // ❌
+uint8_t& ref;   // ✅
+uint8_t &ref;   // ❌
+```
+
+### Braces
+
+```cpp
+// K&R style for functions (opening brace on same line)
+void setup() {
+  // Initialize
+}
+
+// Same line for control structures
+if (condition) {
+  // True branch
+} else {
+  // False branch
+}
+
+// Always use braces, even for single statements
+if (error) {
+  return;  // ✅
+}
+
+if (error)
+  return;  // ❌ Avoid
+
+// Exception: Guard clauses can be one line
+if (!initialized) return ErrorCode::NOT_INITIALIZED;
+if (index >= size) return ErrorCode::OUT_OF_BOUNDS;
+```
+
+### Line Length
+
+```cpp
+// Maximum 100 characters per line
+// Break long lines at logical points
+
+// ✅ GOOD - Readable line breaks
+Result<float> temperature = sensor.readTemperature()
+    .andThen([](float t) { return convertToFahrenheit(t); })
+    .map([](float f) { return roundToDecimal(f, 1); });
+
+// ❌ BAD - Too long
+Result<float> temperature = sensor.readTemperature().andThen([](float t) { return convertToFahrenheit(t); }).map([](float f) { return roundToDecimal(f, 1); });
+
+// Function declarations
+ErrorCode initializeSensor(
+    uint8_t address,
+    uint32_t baudRate,
+    const SensorConfig& config);
+
+// Long string literals
+const char message[] PROGMEM = 
+    "This is a very long message that would exceed the line limit "
+    "so we break it into multiple string literals that the compiler "
+    "will automatically concatenate.";
+```
+
+## Comments
+
+### Documentation Comments
+
+```cpp
+/**
+ * @brief Reads temperature from the sensor
+ * 
+ * @param sensor The sensor instance to read from
+ * @param retries Number of retry attempts (default: 3)
+ * @return Temperature in Celsius, or NaN on error
+ * 
+ * @note This function blocks for up to 100ms
+ * @warning Ensure sensor is initialized before calling
+ */
+float readTemperature(TemperatureSensor& sensor, uint8_t retries = 3);
+
+/**
+ * @brief Manages communication with I2C devices
+ * 
+ * This class provides a high-level interface for I2C communication
+ * with automatic error handling and retry logic.
+ * 
+ * @tparam ClockSpeed I2C clock frequency in Hz
+ */
+template<uint32_t ClockSpeed = 100000>
+class I2CManager {
+  // ...
+};
+```
+
+### Inline Comments
+
+```cpp
+// Use comments to explain WHY, not WHAT
+// ✅ GOOD
+delay(10);  // DHT sensor requires 10ms setup time after power-on
+
+// ❌ BAD
+delay(10);  // Delay for 10 milliseconds
+
+// Complex algorithms need step-by-step explanation
+uint8_t calculateCRC8(const uint8_t* data, size_t length) {
+  uint8_t crc = 0xFF;  // Initialize with all bits set
+  
+  for (size_t i = 0; i < length; i++) {
+    crc ^= data[i];  // XOR with data byte
+    
+    // Process each bit
+    for (uint8_t bit = 0; bit < 8; bit++) {
+      if (crc & 0x80) {
+        crc = (crc << 1) ^ 0x31;  // Polynomial: x^8 + x^5 + x^4 + 1
+      } else {
+        crc <<= 1;
+      }
+    }
+  }
+  
+  return crc;
+}
+
+// TODO/FIXME/HACK comments should include context
+// TODO(john): Add timeout handling - currently blocks indefinitely
+// FIXME: Buffer overflow possible if length > 255
+// HACK: Delay needed due to hardware bug in v1.0 boards
+```
+
+## Type Usage
+
+### Integer Types
+
+```cpp
+// Always use fixed-width types for portability
+#include <stdint.h>
+
+// ✅ GOOD
+uint8_t  byteValue;    // Always 8 bits
+uint16_t wordValue;    // Always 16 bits
+uint32_t dwordValue;   // Always 32 bits
+int16_t  signedValue;  // Always 16 bits, signed
+
+// ❌ AVOID
+unsigned char byteValue;    // Size varies by platform
+unsigned int wordValue;     // Size varies by platform
+long value;                 // Size varies by platform
+
+// Size types
+size_t arraySize;           // For sizes and counts
+ptrdiff_t offset;          // For pointer arithmetic
+
+// Boolean - use bool, not int
+bool isReady = false;       // ✅
+int isReady = 0;           // ❌
+
+// Bit fields for hardware registers
+union StatusRegister {
+  struct {
+    uint8_t ready : 1;
+    uint8_t error : 1;
+    uint8_t busy : 1;
+    uint8_t reserved : 5;
+  } bits;
+  uint8_t raw;
+};
+```
+
+### Constants
+
+```cpp
+// Prefer constexpr over #define
+constexpr uint16_t BUFFER_SIZE = 256;         // ✅
+#define BUFFER_SIZE 256                        // ❌ (except for conditional compilation)
+
+// Compile-time constants
+constexpr float PI = 3.14159265359f;
+constexpr uint32_t CLOCK_FREQUENCY = 16000000UL;
+
+// Runtime constants
+const uint8_t deviceAddress = readAddressFromEEPROM();
+
+// String constants in PROGMEM
+const char VERSION[] PROGMEM = "1.0.0";
+const char ERROR_MSG[] PROGMEM = "Communication error";
+
+// Enums for related constants
+enum class BaudRate : uint32_t {
+  SLOW = 9600,
+  NORMAL = 115200,
+  FAST = 921600
+};
+```
+
+### Auto Keyword
+
+```cpp
+// Use auto for complex types where the type is obvious
+auto result = sensor.read();  // When return type is clear
+auto it = container.begin();  // Iterator types
+
+// Be explicit for fundamental types
+int count = getCount();       // ✅
+auto count = getCount();      // ❌ Less clear
+
+// Use auto with lambdas
+auto processData = [](uint8_t* data, size_t len) {
+  // Process data
+};
+```
+
+## Functions
+
+### Function Design
+
+```cpp
+// Single responsibility - do one thing well
+// ✅ GOOD
+float readTemperature();
+void displayTemperature(float temp);
+
+// ❌ BAD
+float readAndDisplayTemperature();  // Does two things
+
+// Short functions preferred (< 50 lines)
+// Use meaningful names
+void initializeSerialPort();      // ✅
+void init();                      // ❌ Too vague
+
+// Parameter order: outputs, then inputs
+void convertData(uint8_t* output, const uint8_t* input, size_t length);
+
+// Use const for input parameters
+void processData(const SensorData& data);    // ✅
+void processData(SensorData& data);          // ❌ If not modified
+
+// Return early for error conditions
+ErrorCode readSensor(float& value) {
+  if (!initialized_) return ErrorCode::NOT_INITIALIZED;
+  if (!sensorPresent_) return ErrorCode::DEVICE_NOT_FOUND;
+  
+  // Main logic here
+  value = performReading();
+  return ErrorCode::OK;
+}
+```
+
+### Function Parameters
+
+```cpp
+// Pass by const reference for structures
+void processSensorData(const SensorData& data);     // ✅
+void processSensorData(SensorData data);            // ❌ Unnecessary copy
+
+// Pass primitives by value
+void setThreshold(float threshold);                 // ✅
+void setThreshold(const float& threshold);          // ❌ Overkill
+
+// Use default parameters sparingly
+void delay(uint32_t ms, bool interruptible = false);
+
+// Output parameters via pointer or reference
+bool readValue(float& value);          // Return success, output via reference
+ErrorCode getValue(float* value);      // Return error code, output via pointer
+
+// Avoid too many parameters (max 4-5)
+// ❌ BAD
+void configureSensor(uint8_t addr, uint32_t baud, uint8_t mode, 
+                    float gain, uint16_t avg, bool pullup);
+
+// ✅ GOOD - Use a configuration structure
+struct SensorConfig {
+  uint8_t address;
+  uint32_t baudRate;
+  uint8_t mode;
+  float gain;
+  uint16_t averaging;
+  bool enablePullup;
+};
+
+void configureSensor(const SensorConfig& config);
+```
+
+## Classes
+
+### Class Design
+
+```cpp
+class TemperatureSensor {
+public:
+  // Constructors first
+  TemperatureSensor(uint8_t pin);
+  
+  // Destructor (if needed)
+  ~TemperatureSensor() = default;
+  
+  // Deleted copy operations if not copyable
+  TemperatureSensor(const TemperatureSensor&) = delete;
+  TemperatureSensor& operator=(const TemperatureSensor&) = delete;
+  
+  // Public interface
+  bool begin();
+  float readCelsius();
+  float readFahrenheit();
+  
+  // Getters/setters last
+  void setOffset(float offset) { offset_ = offset; }
+  float getOffset() const { return offset_; }
+
+private:
+  // Private members
+  uint8_t pin_;
+  float offset_;
+  uint32_t lastReadTime_;
+  
+  // Private methods
+  float applyCalibration(float raw);
+};
+
+// Initialization lists
+TemperatureSensor::TemperatureSensor(uint8_t pin)
+    : pin_(pin), offset_(0.0f), lastReadTime_(0) {
+  // Constructor body only for complex initialization
+}
+```
+
+### Inheritance
+
+```cpp
+// Interface base class
+class ISensor {
+public:
+  virtual ~ISensor() = default;
+  virtual bool begin() = 0;
+  virtual float read() = 0;
+  virtual const char* getName() const = 0;
+};
+
+// Concrete implementation
+class DHT22 : public ISensor {
+public:
+  explicit DHT22(uint8_t pin) : pin_(pin) {}
+  
+  bool begin() override;
+  float read() override;
+  const char* getName() const override { return "DHT22"; }
+  
+private:
+  uint8_t pin_;
+};
+
+// Prefer composition over inheritance
+class SensorManager {
+private:
+  ISensor* sensor_;  // Composition
+public:
+  explicit SensorManager(ISensor* sensor) : sensor_(sensor) {}
+};
+```
+
+## Memory Management
+
+### PROGMEM Usage
+
+```cpp
+// String constants
+const char MENU_TITLE[] PROGMEM = "Main Menu";
+const char MENU_ITEM_1[] PROGMEM = "Settings";
+
+// Arrays of strings
+const char* const menuItems[] PROGMEM = {
+  MENU_TITLE,
+  MENU_ITEM_1
+};
+
+// Data tables
+const uint16_t sineLookup[] PROGMEM = {
+  0, 1144, 2287, 3430, 4571, 5712, 6850, 7987
+};
+
+// F() macro for immediate use
+Serial.println(F("System initialized"));
+```
+
+### Dynamic Allocation
+
+```cpp
+// AVOID dynamic allocation when possible
+// ❌ BAD
+float* buffer = new float[100];
+// ... use buffer
+delete[] buffer;
+
+// ✅ GOOD - Static allocation
+float buffer[100];
+
+// If dynamic allocation is necessary, use RAII
+template<typename T>
+class DynamicBuffer {
+private:
+  T* data_;
+  size_t size_;
+  
+public:
+  explicit DynamicBuffer(size_t size) 
+      : data_(new T[size]), size_(size) {}
+      
+  ~DynamicBuffer() { delete[] data_; }
+  
+  // Delete copy operations
+  DynamicBuffer(const DynamicBuffer&) = delete;
+  DynamicBuffer& operator=(const DynamicBuffer&) = delete;
+  
+  T& operator[](size_t index) { return data_[index]; }
+  size_t size() const { return size_; }
+};
+```
+
+## Error Handling
+
+```cpp
+// Use error codes, not exceptions
+enum class ErrorCode : int8_t {
+  OK = 0,
+  INVALID_PARAMETER = -1,
+  TIMEOUT = -2,
+  HARDWARE_FAULT = -3
+};
+
+// Return error codes
+ErrorCode readSensor(float& value) {
+  if (!initialized_) {
+    return ErrorCode::NOT_INITIALIZED;
+  }
+  
+  // Read sensor
+  value = analogRead(pin_) * scale_;
+  return ErrorCode::OK;
+}
+
+// Check errors explicitly
+float temperature;
+ErrorCode result = readSensor(temperature);
+if (result != ErrorCode::OK) {
+  handleError(result);
+}
+```
+
+## Platform-Specific Code
+
+```cpp
+// Use conditional compilation for platform differences
+#ifdef ARDUINO_ARCH_AVR
+  // AVR-specific code
+  #include <avr/pgmspace.h>
+  #define READ_PROGMEM(addr) pgm_read_byte(addr)
+#elif defined(ESP32)
+  // ESP32-specific code
+  #include <esp_system.h>
+  #define READ_PROGMEM(addr) (*addr)
+#else
+  #error "Unsupported platform"
+#endif
+
+// Platform abstraction
+class SystemInfo {
+public:
+  static uint32_t getFreeMemory() {
+    #ifdef ARDUINO_ARCH_AVR
+      extern int __heap_start, *__brkval;
+      int v;
+      return (int) &v - (__brkval == 0 ? (int) &__heap_start : (int) __brkval);
+    #elif defined(ESP32)
+      return ESP.getFreeHeap();
+    #else
+      return 0;
+    #endif
+  }
+};
+```
+
+## File Organization
+
+### Header Files
+
+```cpp
+// header_example.h
+#pragma once  // Or use header guards
+
+// System includes first
+#include <stdint.h>
+#include <Arduino.h>
+
+// Library includes
+#include <Wire.h>
+#include <SPI.h>
+
+// Project includes
+#include "config.h"
+#include "types.h"
+
+// Forward declarations
+class Sensor;
+struct Configuration;
+
+// Class definition
+class Example {
+  // ...
+};
+
+// Inline functions (only if truly needed in header)
+inline uint16_t swap16(uint16_t value) {
+  return (value >> 8) | (value << 8);
+}
+```
+
+### Source Files
+
+```cpp
+// example.cpp
+
+// Corresponding header first
+#include "example.h"
+
+// System includes
+#include <string.h>
+
+// Other project headers
+#include "debug.h"
+#include "utilities.h"
+
+// Anonymous namespace for file-local items
+namespace {
+  constexpr uint32_t MAGIC_NUMBER = 0xDEADBEEF;
+  
+  void helperFunction() {
+    // Local to this file
+  }
+} // anonymous namespace
+
+// Implementation
+Example::Example() {
+  // Constructor implementation
+}
+```
+
+## Best Practices Summary
+
+1. **Descriptive Names**: Use full, meaningful names
+2. **Consistent Style**: Follow naming conventions consistently
+3. **Fixed-Width Types**: Use stdint.h types for portability
+4. **PROGMEM**: Store constants in program memory
+5. **Error Codes**: Use enums for error handling
+6. **Short Functions**: Keep functions focused and concise
+7. **Const Correctness**: Mark unmodified parameters const
+8. **Static Allocation**: Prefer compile-time memory allocation
+9. **Platform Abstraction**: Isolate platform-specific code
+10. **Clear Comments**: Document why, not what

@@ -1,0 +1,622 @@
+---
+description: Comprehensive code style guide for Python following PEP 8 and modern best practices
+globs:
+  - "**/*.py"
+alwaysApply: true
+---
+
+# Code Style Guidelines
+
+You MUST follow these coding guidelines when adding ANY code to the codebase.
+
+## 1. Code Formatting
+
+### Black Formatter
+
+- **Tool:** [Black](https://black.readthedocs.io/)
+- **Line Length:** 100 characters (default)
+- **String Quotes:** Double quotes (Black default)
+- **Trailing Commas:** Yes, for multiline structures
+
+**Configuration (`pyproject.toml`):**
+
+```toml
+[tool.black]
+line-length = 100
+target-version = ['py311']
+include = '\.pyi?$'
+```
+
+**Usage:**
+
+```bash
+# Format all files
+black .
+
+# Check without formatting
+black --check .
+```
+
+### Import Sorting
+
+- **Tool:** [isort](https://pycqa.github.io/isort/)
+- **Style:** Black-compatible
+
+**Configuration (`pyproject.toml`):**
+
+```toml
+[tool.isort]
+profile = "black"
+line_length = 100
+known_first_party = ["app"]
+```
+
+## 2. Type Hints
+
+### Mandatory Type Hints
+
+All functions must have type hints:
+
+```python
+# ❌ BAD - No type hints
+def process_user(user_data):
+    return user_data
+
+# ✅ GOOD - Type hints included
+def process_user(user_data: dict) -> dict:
+    return user_data
+
+# ✅ BETTER - Specific types
+from typing import Dict, Any
+
+def process_user(user_data: Dict[str, Any]) -> Dict[str, Any]:
+    return user_data
+
+# ✅ BEST - Use Pydantic models
+from app.schemas.user import UserCreate, UserResponse
+
+def process_user(user_data: UserCreate) -> UserResponse:
+    return UserResponse.from_orm(user_data)
+```
+
+### Type Hint Best Practices
+
+```python
+from typing import Optional, List, Dict, Union, Any
+from datetime import datetime
+
+# Optional types
+def get_user(user_id: Optional[int] = None) -> Optional[User]:
+    pass
+
+# Lists and Dicts
+def process_items(items: List[str]) -> Dict[str, int]:
+    pass
+
+# Union types (Python 3.10+)
+def process_value(value: int | str) -> None:
+    pass
+
+# Async functions
+async def fetch_data(url: str) -> Dict[str, Any]:
+    pass
+
+# Forward references (use __future__ import)
+from __future__ import annotations
+
+def process_user(user: "User") -> "UserResponse":
+    pass
+```
+
+## 3. Naming Conventions
+
+### Variables and Functions
+
+- **Style:** `snake_case`
+- **NEVER abbreviate variables** - Always use full, descriptive names
+- Single-letter variables are forbidden except for standard mathematical conventions (e.g., `x`, `y` in coordinate systems, `i` in mathematical contexts)
+
+```python
+# ❌ BAD - Abbreviated variables
+workflows.filter((w) => w.status == 'active')
+data.map((p) => p.id == temp_id ? new_post : p)
+users.map((u) => u.id)
+
+# ✅ GOOD - Full descriptive names
+workflows.filter((workflow) => workflow.status == 'active')
+data.map((post) => post.id == temp_id ? new_post : post)
+users.map((user) => user.id)
+
+# ❌ BAD - Single letter (except math)
+for i in range(10):  # OK for loop index
+for item in items:  # Better
+
+# ✅ GOOD - Descriptive names
+for user in users:
+    process_user(user)
+
+for workflow_item in workflow_items:
+    process_workflow_item(workflow_item)
+```
+
+### Classes
+
+- **Style:** `PascalCase`
+
+```python
+class UserService:
+    pass
+
+class UserRepository:
+    pass
+
+class HTTPClient:
+    pass
+```
+
+### Constants
+
+- **Style:** `UPPER_SNAKE_CASE`
+
+```python
+MAX_RETRY_ATTEMPTS = 3
+DEFAULT_TIMEOUT = 30
+API_BASE_URL = "https://api.example.com"
+```
+
+### Private Methods/Attributes
+
+- **Style:** Leading underscore for private
+
+```python
+class UserService:
+    def __init__(self):
+        self._cache: Dict[str, Any] = {}
+    
+    def _internal_method(self) -> None:
+        pass
+    
+    def public_method(self) -> None:
+        pass
+```
+
+## 4. Imports
+
+### Import Order
+
+1. Standard library imports
+2. Third-party imports
+3. Local application imports
+
+```python
+# Standard library
+from datetime import datetime
+from typing import Optional, List
+
+# Third-party
+from fastapi import APIRouter, Depends
+from sqlalchemy.ext.asyncio import AsyncSession
+from pydantic import BaseModel
+
+# Local
+from app.core.config import settings
+from app.models.domain.user import User
+from app.services.user_service import UserService
+```
+
+### Import Style
+
+```python
+# ✅ GOOD - Absolute imports
+from app.services.user_service import UserService
+
+# ❌ BAD - Relative imports (avoid)
+from ..services.user_service import UserService
+
+# ✅ GOOD - Group related imports
+from fastapi import APIRouter, Depends, HTTPException, status
+
+# ✅ GOOD - Import only what you need
+from app.models.domain.user import User  # Not: from app.models.domain import *
+
+# ✅ GOOD - Use aliases for clarity
+from app.core.logging import get_logger as get_app_logger
+```
+
+## 5. Functions
+
+### Function Definitions
+
+```python
+# ✅ GOOD - Type hints, docstring
+def get_user_by_id(user_id: int, include_inactive: bool = False) -> Optional[User]:
+    """
+    Get user by ID.
+    
+    Args:
+        user_id: The user ID to look up
+        include_inactive: Whether to include inactive users
+    
+    Returns:
+        User object if found, None otherwise
+    """
+    pass
+
+# ✅ GOOD - Async functions
+async def fetch_user_data(user_id: int) -> Dict[str, Any]:
+    """Fetch user data from external API."""
+    pass
+
+# ✅ GOOD - Multiple parameters, trailing comma
+def process_data(
+    data: List[Dict[str, Any]],
+    options: Optional[Dict[str, Any]] = None,
+    validate: bool = True,
+) -> Dict[str, Any]:
+    pass
+```
+
+### Function Best Practices
+
+```python
+# ✅ GOOD - Single responsibility
+def calculate_total(items: List[Item]) -> float:
+    """Calculate total price of items."""
+    return sum(item.price for item in items)
+
+# ❌ BAD - Multiple responsibilities
+def process_order(order: Order) -> None:
+    # Validates order
+    # Calculates total
+    # Sends email
+    # Updates database
+    # Logs activity
+    pass
+
+# ✅ GOOD - Small, focused functions
+def validate_order(order: Order) -> bool:
+    pass
+
+def calculate_order_total(order: Order) -> float:
+    pass
+
+def send_order_confirmation(order: Order) -> None:
+    pass
+```
+
+## 6. Classes
+
+### Class Definitions
+
+```python
+# ✅ GOOD - Type hints, docstring
+class UserService:
+    """Service for user-related business logic."""
+    
+    def __init__(self, db: AsyncSession) -> None:
+        """Initialize user service."""
+        self.db = db
+        self.repository = UserRepository(db)
+    
+    async def get_user_by_id(self, user_id: int) -> Optional[User]:
+        """Get user by ID."""
+        pass
+
+# ✅ GOOD - Dataclasses for simple data structures
+from dataclasses import dataclass
+
+@dataclass
+class UserConfig:
+    """User configuration."""
+    max_items: int = 10
+    timeout: int = 30
+```
+
+## 7. Docstrings
+
+### Google-Style Docstrings
+
+```python
+def process_user_data(
+    user_id: int,
+    include_metadata: bool = False,
+) -> Dict[str, Any]:
+    """
+    Process user data and return formatted result.
+    
+    This function fetches user data from the database, applies
+    transformations, and returns a formatted dictionary.
+    
+    Args:
+        user_id: The ID of the user to process
+        include_metadata: Whether to include metadata in the result
+    
+    Returns:
+        Dictionary containing processed user data with keys:
+        - id: User ID
+        - name: User name
+        - email: User email
+        - metadata: Optional metadata dict (if include_metadata is True)
+    
+    Raises:
+        NotFoundError: If user with given ID doesn't exist
+        ValidationError: If user data is invalid
+    
+    Example:
+        >>> result = process_user_data(123, include_metadata=True)
+        >>> print(result['name'])
+        'John Doe'
+    """
+    pass
+```
+
+## 8. Async/Await
+
+### Async Best Practices
+
+```python
+# ✅ GOOD - Async for I/O operations
+async def fetch_user(user_id: int) -> User:
+    """Fetch user from database."""
+    async with AsyncSession() as session:
+        result = await session.execute(select(User).where(User.id == user_id))
+        return result.scalar_one()
+
+# ✅ GOOD - Async context managers
+async def process_file(file_path: str) -> None:
+    async with aiofiles.open(file_path, 'r') as f:
+        content = await f.read()
+        await process_content(content)
+
+# ❌ BAD - Blocking I/O in async function
+async def fetch_user(user_id: int) -> User:
+    # ❌ Don't use blocking I/O
+    with open('file.txt') as f:
+        content = f.read()
+    
+    # ✅ Use async I/O
+    async with aiofiles.open('file.txt') as f:
+        content = await f.read()
+```
+
+## 9. Error Handling
+
+### Exception Handling
+
+```python
+# ✅ GOOD - Specific exceptions
+try:
+    user = await user_service.get_user_by_id(user_id)
+except NotFoundError:
+    raise HTTPException(status_code=404, detail="User not found")
+except ValidationError as e:
+    raise HTTPException(status_code=400, detail=str(e))
+
+# ❌ BAD - Bare except
+try:
+    user = await user_service.get_user_by_id(user_id)
+except:  # Too broad
+    pass
+
+# ✅ GOOD - Log and re-raise
+try:
+    result = await risky_operation()
+except Exception as e:
+    logger.error("Operation failed", exc_info=True)
+    raise
+```
+
+## 10. Comments
+
+### Comment Style
+
+```python
+# ✅ GOOD - Single-line comments
+# Process user data before saving
+user_data = process_user_data(raw_data)
+
+# ✅ GOOD - Inline comments (sparingly)
+total = price * quantity  # Calculate total including tax
+
+# ✅ GOOD - Block comments for complex logic
+# This algorithm uses a two-pass approach:
+# 1. First pass: collect all items
+# 2. Second pass: process items in batches
+result = process_items(items)
+
+# ❌ BAD - Obvious comments
+# Increment counter
+counter += 1
+
+# ❌ BAD - Commented-out code
+# old_code()
+```
+
+## 11. Whitespace
+
+### Indentation
+
+- **Spaces:** 4 spaces (never tabs)
+- **Continuation:** Align with opening delimiter
+
+```python
+# ✅ GOOD - 4 spaces
+def function():
+    if condition:
+        do_something()
+
+# ✅ GOOD - Aligned continuation
+result = process_data(
+    data=user_data,
+    options=processing_options,
+    validate=True,
+)
+
+# ❌ BAD - Tabs or wrong indentation
+def function():
+	if condition:  # Tab instead of spaces
+		do_something()
+```
+
+### Blank Lines
+
+- Two blank lines between top-level definitions
+- One blank line between methods in a class
+- No blank lines at start/end of file
+
+```python
+# ✅ GOOD
+import os
+
+from app.core.config import settings
+
+
+class UserService:
+    """User service."""
+    
+    def __init__(self):
+        pass
+    
+    def method_one(self):
+        pass
+    
+    def method_two(self):
+        pass
+
+
+def helper_function():
+    pass
+```
+
+## 12. Line Length
+
+- **Maximum:** 100 characters
+- **Exceptions:** Long URLs, import statements
+
+```python
+# ✅ GOOD - Within limit
+def process_user_data(user_id: int, include_metadata: bool = False) -> Dict[str, Any]:
+    pass
+
+# ✅ GOOD - Break long lines
+def process_user_data(
+    user_id: int,
+    include_metadata: bool = False,
+    validate_input: bool = True,
+) -> Dict[str, Any]:
+    pass
+
+# ✅ GOOD - Long strings can exceed limit
+long_url = "https://very-long-url-that-exceeds-100-characters.com/path/to/resource"
+```
+
+## 13. Comprehensions
+
+### List/Dict Comprehensions
+
+```python
+# ✅ GOOD - Simple comprehensions
+squares = [x**2 for x in range(10)]
+user_dict = {user.id: user.name for user in users}
+
+# ✅ GOOD - Complex comprehensions (multiline)
+filtered_users = [
+    user for user in users
+    if user.is_active and user.email.endswith('@example.com')
+]
+
+# ❌ BAD - Too complex, use loop instead
+result = [process(x) for x in data if validate(x) and transform(x) and check(x)]
+```
+
+## 14. String Formatting
+
+### f-strings (Preferred)
+
+```python
+# ✅ GOOD - f-strings
+name = "John"
+message = f"Hello, {name}!"
+
+# ✅ GOOD - f-strings with expressions
+total = 100
+message = f"Total: ${total:.2f}"
+
+# ✅ GOOD - Multiline f-strings
+message = (
+    f"User {user.name} (ID: {user.id}) "
+    f"has {len(user.items)} items"
+)
+```
+
+### Format Method
+
+```python
+# ✅ ACCEPTABLE - .format() for complex formatting
+message = "User {name} has {count} items".format(
+    name=user.name,
+    count=len(user.items)
+)
+
+# ❌ BAD - % formatting (old style)
+message = "User %s has %d items" % (user.name, len(user.items))
+```
+
+## 15. Testing
+
+### Test Function Names
+
+```python
+# ✅ GOOD - Descriptive test names
+def test_get_user_by_id_returns_user_when_exists():
+    pass
+
+def test_get_user_by_id_raises_not_found_when_missing():
+    pass
+
+# ❌ BAD - Vague test names
+def test_user():
+    pass
+
+def test_get_user():
+    pass
+```
+
+## 16. Pre-commit Hooks
+
+**Configuration (`.pre-commit-config.yaml`):**
+
+```yaml
+repos:
+  - repo: https://github.com/psf/black
+    rev: 23.9.1
+    hooks:
+      - id: black
+  
+  - repo: https://github.com/pycqa/isort
+    rev: 5.12.0
+    hooks:
+      - id: isort
+  
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.5.1
+    hooks:
+      - id: mypy
+        additional_dependencies: [types-all]
+  
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.0.292
+    hooks:
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+```
+
+## Remember
+
+- **Follow PEP 8** - Python style guide
+- **Use Black** - Automatic code formatting
+- **Type Hints** - Mandatory for all functions
+- **Descriptive Names** - Never abbreviate
+- **Docstrings** - Google-style for all public functions
+- **Async First** - Use async/await for I/O
+- **100 Char Limit** - Maximum line length

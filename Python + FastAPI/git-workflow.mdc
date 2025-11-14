@@ -1,0 +1,411 @@
+---
+description: Git workflow, commit message conventions, and version control best practices for Python projects
+globs:
+  - "**/.git/**"
+  - "**/.gitignore"
+alwaysApply: true
+---
+
+# Git Workflow Guidelines
+
+## Commit Message Format
+
+Follow the [Conventional Commits](https://www.conventionalcommits.org/) specification for consistent commit messages.
+
+### Format
+
+```
+<type>(<scope>): <subject>
+
+<body>
+
+<footer>
+```
+
+### Types
+
+- **`feat`**: A new feature
+- **`fix`**: A bug fix
+- **`docs`**: Documentation only changes
+- **`style`**: Code style changes (formatting, missing semicolons, etc.)
+- **`refactor`**: Code refactoring without bug fixes or features
+- **`perf`**: Performance improvements
+- **`test`**: Adding or updating tests
+- **`chore`**: Maintenance tasks, dependency updates
+- **`build`**: Build system or external dependencies
+- **`ci`**: CI/CD configuration changes
+
+### Examples
+
+```bash
+# Feature
+feat(auth): add JWT token refresh mechanism
+
+# Bug fix
+fix(api): resolve user profile null reference error
+
+# Breaking change
+feat(api)!: change user endpoint response format
+
+BREAKING CHANGE: The user endpoint now returns nested user object instead of flat structure
+
+# Multiple changes
+feat(users): add user profile management
+
+- Add user profile service
+- Create profile API endpoints
+- Update user schema with profile fields
+```
+
+### Scope
+
+Use scope to indicate which part of the codebase is affected:
+
+- `api`: API routes and handlers
+- `auth`: Authentication and authorization
+- `services`: Service layer functions
+- `repositories`: Repository layer
+- `models`: Database and domain models
+- `schemas`: Pydantic schemas
+- `utils`: Utility functions
+- `config`: Configuration files
+- `deps`: Dependencies
+- `tests`: Test files
+
+### Subject
+
+- Use imperative mood ("add" not "added" or "adds")
+- First line should be 50 characters or less
+- Don't end with a period
+- Be specific and descriptive
+
+### Body (Optional)
+
+- Explain the "what" and "why" vs "how"
+- Wrap at 72 characters
+- Can include multiple paragraphs
+
+### Footer (Optional)
+
+- Reference issues: `Closes #123`, `Fixes #456`
+- Breaking changes: `BREAKING CHANGE: <description>`
+
+## Branch Naming
+
+### Format
+
+```
+<type>/<description>
+```
+
+### Types
+
+- `feature/`: New features
+- `fix/`: Bug fixes
+- `hotfix/`: Critical production fixes
+- `refactor/`: Code refactoring
+- `docs/`: Documentation updates
+- `test/`: Test additions/updates
+
+### Examples
+
+```bash
+feature/user-profile-editor
+fix/api-authentication-error
+hotfix/critical-data-loss-bug
+refactor/user-service-layer
+```
+
+## Commit Best Practices
+
+### ✅ DO
+
+- Make atomic commits (one logical change per commit)
+- Write clear, descriptive commit messages
+- Commit frequently (small, incremental changes)
+- Test before committing
+- Run pre-commit hooks before committing
+- Review your changes with `git diff` before committing
+
+### ❌ DON'T
+
+- Commit commented-out code
+- Commit debugging code or print statements
+- Commit with lint errors (see `no-hiding.mdc`)
+- Mix unrelated changes in one commit
+- Commit secrets or sensitive data
+- Force push to main/master branch
+- Commit without running tests
+
+## Workflow
+
+### 1. Create Feature Branch
+
+```bash
+git checkout -b feature/my-new-feature
+```
+
+### 2. Make Changes
+
+- Write code following all guidelines
+- Ensure no lint errors (run `ruff check .`)
+- Ensure no type errors (run `mypy app/`)
+- Ensure code is formatted (run `black .`)
+- Test your changes (run `pytest`)
+
+### 3. Stage Changes
+
+```bash
+# Review what you're committing
+git status
+git diff
+
+# Stage specific files
+git add path/to/file.py
+
+# Or stage all changes
+git add .
+```
+
+### 4. Run Pre-commit Hooks
+
+```bash
+# Pre-commit hooks should run automatically
+# But you can run manually:
+pre-commit run --all-files
+```
+
+### 5. Commit
+
+```bash
+git commit -m "feat(scope): descriptive message"
+```
+
+### 6. Push and Create PR
+
+```bash
+git push origin feature/my-new-feature
+```
+
+Then create a Pull Request with:
+- Clear title matching commit message format
+- Description explaining the change
+- Reference to related issues
+- Screenshots for UI changes (if applicable)
+
+## Pull Request Guidelines
+
+### PR Title
+
+Follow the same format as commit messages:
+
+```
+feat(auth): add password reset functionality
+```
+
+### PR Description Template
+
+```markdown
+## Description
+Brief description of what this PR does.
+
+## Type of Change
+- [ ] Bug fix
+- [ ] New feature
+- [ ] Breaking change
+- [ ] Documentation update
+
+## Testing
+- [ ] Tests pass locally (`pytest`)
+- [ ] Linters pass (`ruff check .`, `mypy app/`)
+- [ ] Code formatted (`black .`)
+- [ ] Manual testing completed
+- [ ] Edge cases considered
+
+## Checklist
+- [ ] Code follows style guidelines
+- [ ] No lint errors
+- [ ] No type checker errors
+- [ ] Self-review completed
+- [ ] Docstrings added for public functions
+- [ ] Tests added/updated
+- [ ] Documentation updated if needed
+```
+
+## Handling Conflicts
+
+### When Your Branch is Behind
+
+```bash
+# Fetch latest changes
+git fetch origin
+
+# Rebase your branch on main
+git checkout feature/my-feature
+git rebase origin/main
+
+# Resolve conflicts if any
+# Then continue rebase
+git rebase --continue
+
+# Force push (only on feature branches)
+git push --force-with-lease origin feature/my-feature
+```
+
+## Git Ignore
+
+Ensure these are in `.gitignore`:
+
+```
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.hypothesis/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*.sublime-project
+*.sublime-workspace
+
+# Environment variables
+.env
+.env.local
+.env*.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Temporary files
+*.tmp
+.cache/
+```
+
+## Pre-commit Hooks
+
+**Configuration (`.pre-commit-config.yaml`):**
+
+```yaml
+repos:
+  - repo: https://github.com/psf/black
+    rev: 23.9.1
+    hooks:
+      - id: black
+        language_version: python3.11
+  
+  - repo: https://github.com/pycqa/isort
+    rev: 5.12.0
+    hooks:
+      - id: isort
+  
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.5.1
+    hooks:
+      - id: mypy
+        additional_dependencies: [types-all]
+        args: [--strict]
+  
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.0.292
+    hooks:
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+  
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files
+```
+
+**Install hooks:**
+
+```bash
+pre-commit install
+```
+
+## Common Commands
+
+```bash
+# Check status
+git status
+
+# View changes
+git diff
+git diff --staged
+
+# View commit history
+git log --oneline --graph
+
+# Undo last commit (keep changes)
+git reset --soft HEAD~1
+
+# Undo last commit (discard changes)
+git reset --hard HEAD~1
+
+# Stash changes
+git stash
+git stash pop
+
+# View stashes
+git stash list
+
+# Create branch from main
+git checkout main
+git pull origin main
+git checkout -b feature/new-feature
+```
+
+## Remember
+
+- **Small, frequent commits** are better than large, infrequent ones
+- **Clear commit messages** help future you and your team
+- **Test before committing** to avoid broken commits
+- **Run pre-commit hooks** to catch issues early
+- **Review your changes** with `git diff` before committing
+- **Never commit secrets** or sensitive data
+- **Follow conventional commits** for consistency

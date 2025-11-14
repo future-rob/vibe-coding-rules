@@ -1,0 +1,680 @@
+---
+description: Comprehensive code style guide for Solidity following Style Guide and modern best practices
+globs:
+  - "**/*.sol"
+alwaysApply: true
+---
+
+# Code Style Guidelines
+
+You MUST follow these coding guidelines when adding ANY code to the codebase.
+
+## 1. Code Formatting
+
+### Solidity Style Guide
+
+Follow the [Solidity Style Guide](https://docs.soliditylang.org/en/latest/style-guide.html) for formatting conventions.
+
+### Indentation
+
+- **Spaces:** 4 spaces (never tabs)
+- **Consistent:** Use same indentation throughout
+
+```solidity
+// ✅ GOOD - 4 spaces
+contract MyContract {
+    function myFunction() external {
+        if (condition) {
+            doSomething();
+        }
+    }
+}
+
+// ❌ BAD - Tabs or inconsistent spacing
+contract MyContract {
+	function myFunction() external {
+		if (condition) {
+			doSomething();
+		}
+	}
+}
+```
+
+### Line Length
+
+- **Maximum:** 120 characters (recommended)
+- **Exceptions:** Long strings, import statements
+
+```solidity
+// ✅ GOOD - Within limit
+function transfer(address to, uint256 amount) external returns (bool) {
+    // ...
+}
+
+// ✅ GOOD - Break long lines
+function complexFunction(
+    address recipient,
+    uint256 amount,
+    bytes calldata data
+) external returns (bool) {
+    // ...
+}
+```
+
+## 2. Naming Conventions
+
+### Contracts and Libraries
+
+- **Style:** `PascalCase`
+- **Descriptive:** Use full, descriptive names
+
+```solidity
+// ✅ GOOD
+contract TokenVesting {
+    // ...
+}
+
+library SafeMath {
+    // ...
+}
+
+// ❌ BAD - Abbreviated
+contract TV {
+    // ...
+}
+
+// ❌ BAD - Single letter
+contract T {
+    // ...
+}
+```
+
+### Functions and Variables
+
+- **Style:** `camelCase`
+- **NEVER abbreviate variables** - Always use full, descriptive names
+- Single-letter variables are forbidden except for standard mathematical conventions (e.g., `i`, `j` in loops, `x`, `y` in mathematical contexts)
+
+```solidity
+// ❌ BAD - Abbreviated variables
+function transfer(address to, uint256 amt) external {
+    uint256 bal = balanceOf[msg.sender];
+    // ...
+}
+
+// ✅ GOOD - Full descriptive names
+function transfer(address recipient, uint256 amount) external {
+    uint256 senderBalance = balanceOf[msg.sender];
+    // ...
+}
+
+// ❌ BAD - Single letter (except math/loops)
+function process(uint256 x) external {
+    uint256 y = x * 2;
+    // ...
+}
+
+// ✅ GOOD - Descriptive names
+function process(uint256 inputValue) external {
+    uint256 doubledValue = inputValue * 2;
+    // ...
+}
+
+// ✅ ACCEPTABLE - Loop indices
+for (uint256 i = 0; i < array.length; i++) {
+    // ...
+}
+```
+
+### Constants
+
+- **Style:** `UPPER_SNAKE_CASE`
+
+```solidity
+// ✅ GOOD
+uint256 public constant MAX_SUPPLY = 1_000_000_000;
+uint256 public constant DECIMALS = 18;
+address public constant TREASURY = 0x1234...;
+
+// ❌ BAD
+uint256 public constant maxSupply = 1_000_000_000;
+```
+
+### Events
+
+- **Style:** `PascalCase` with past tense
+
+```solidity
+// ✅ GOOD
+event Transfer(address indexed from, address indexed to, uint256 value);
+event Approval(address indexed owner, address indexed spender, uint256 value);
+
+// ❌ BAD
+event transfer(address from, address to, uint256 value);
+```
+
+### Custom Errors
+
+- **Style:** `PascalCase`
+
+```solidity
+// ✅ GOOD
+error InsufficientBalance(uint256 required, uint256 available);
+error Unauthorized(address account);
+error InvalidAddress(address provided);
+
+// ❌ BAD
+error insufficientBalance(uint256 required, uint256 available);
+```
+
+## 3. Contract Structure Order
+
+Follow this order for contract elements:
+
+1. **SPDX License Identifier**
+2. **Pragma**
+3. **Imports**
+4. **Interfaces**
+5. **Libraries**
+6. **Errors**
+7. **Events**
+8. **Structs**
+9. **Enums**
+10. **Constants**
+11. **State Variables**
+12. **Modifiers**
+13. **Constructor**
+14. **Receive Function** (if payable)
+15. **Fallback Function** (if exists)
+16. **External Functions**
+17. **Public Functions**
+18. **Internal Functions**
+19. **Private Functions**
+
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+
+interface IMyInterface {
+    // ...
+}
+
+library MyLibrary {
+    // ...
+}
+
+error InsufficientBalance(uint256 required, uint256 available);
+
+event Transfer(address indexed from, address indexed to, uint256 value);
+
+struct UserData {
+    uint256 balance;
+    uint256 timestamp;
+}
+
+enum Status { Active, Inactive, Paused }
+
+contract MyContract {
+    // Constants
+    uint256 public constant MAX_SUPPLY = 1_000_000_000;
+    
+    // State Variables
+    mapping(address => uint256) public balances;
+    
+    // Modifiers
+    modifier onlyOwner() {
+        require(msg.sender == owner, "Not owner");
+        _;
+    }
+    
+    // Constructor
+    constructor() {
+        // ...
+    }
+    
+    // External Functions
+    function externalFunction() external {
+        // ...
+    }
+    
+    // Public Functions
+    function publicFunction() public {
+        // ...
+    }
+    
+    // Internal Functions
+    function internalFunction() internal {
+        // ...
+    }
+    
+    // Private Functions
+    function privateFunction() private {
+        // ...
+    }
+}
+```
+
+## 4. Spacing
+
+### Operators
+
+```solidity
+// ✅ GOOD - Spaces around operators
+uint256 result = a + b;
+bool isEqual = x == y;
+
+// ❌ BAD - No spaces
+uint256 result = a+b;
+bool isEqual = x==y;
+```
+
+### Function Parameters
+
+```solidity
+// ✅ GOOD - Space after comma
+function transfer(address to, uint256 amount) external {
+    // ...
+}
+
+// ❌ BAD - No space after comma
+function transfer(address to,uint256 amount) external {
+    // ...
+}
+```
+
+### Braces
+
+```solidity
+// ✅ GOOD - Opening brace on same line
+function myFunction() external {
+    // ...
+}
+
+// ✅ ACCEPTABLE - Opening brace on new line (if team prefers)
+function myFunction() external
+{
+    // ...
+}
+```
+
+## 5. Imports
+
+### Import Order
+
+1. External dependencies (OpenZeppelin, etc.)
+2. Internal interfaces
+3. Internal libraries
+4. Internal contracts
+
+```solidity
+// External dependencies
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+
+// Internal interfaces
+import "./interfaces/IMyInterface.sol";
+
+// Internal libraries
+import "./libraries/MyLibrary.sol";
+
+// Internal contracts
+import "./BaseContract.sol";
+```
+
+### Import Style
+
+```solidity
+// ✅ GOOD - Specific imports
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+
+// ❌ BAD - Wildcard imports (unless necessary)
+import "@openzeppelin/contracts/token/ERC20/*";
+```
+
+## 6. Functions
+
+### Function Visibility
+
+Always specify visibility explicitly:
+
+```solidity
+// ✅ GOOD - Explicit visibility
+function publicFunction() public {
+    // ...
+}
+
+function externalFunction() external {
+    // ...
+}
+
+function internalFunction() internal {
+    // ...
+}
+
+function privateFunction() private {
+    // ...
+}
+
+// ❌ BAD - Missing visibility (defaults to public)
+function myFunction() {
+    // ...
+}
+```
+
+### Function Ordering
+
+Order functions by visibility: external, public, internal, private
+
+```solidity
+contract MyContract {
+    // External
+    function externalFunction() external {
+        // ...
+    }
+    
+    // Public
+    function publicFunction() public {
+        // ...
+    }
+    
+    // Internal
+    function internalFunction() internal {
+        // ...
+    }
+    
+    // Private
+    function privateFunction() private {
+        // ...
+    }
+}
+```
+
+### Function Parameters
+
+```solidity
+// ✅ GOOD - Descriptive parameter names
+function transfer(address recipient, uint256 amount) external {
+    // ...
+}
+
+// ❌ BAD - Abbreviated or single-letter parameters
+function transfer(address to, uint256 amt) external {
+    // ...
+}
+
+// ✅ GOOD - Use calldata for external functions (gas efficient)
+function processData(bytes calldata data) external {
+    // ...
+}
+
+// ✅ GOOD - Use memory for internal functions
+function processDataInternal(bytes memory data) internal {
+    // ...
+}
+```
+
+## 7. Variables
+
+### State Variables
+
+```solidity
+// ✅ GOOD - Descriptive names, explicit visibility
+mapping(address => uint256) public balances;
+uint256 private totalSupply;
+address public immutable owner;
+
+// ❌ BAD - Abbreviated names
+mapping(address => uint256) public bal;
+uint256 private ts;
+```
+
+### Local Variables
+
+```solidity
+// ✅ GOOD - Descriptive names
+function calculateTotal(uint256[] memory amounts) external pure returns (uint256) {
+    uint256 totalAmount = 0;
+    for (uint256 i = 0; i < amounts.length; i++) {
+        totalAmount += amounts[i];
+    }
+    return totalAmount;
+}
+
+// ❌ BAD - Abbreviated names
+function calculateTotal(uint256[] memory amts) external pure returns (uint256) {
+    uint256 tot = 0;
+    for (uint256 i = 0; i < amts.length; i++) {
+        tot += amts[i];
+    }
+    return tot;
+}
+```
+
+### Storage vs Memory
+
+```solidity
+// ✅ GOOD - Use memory for temporary data
+function processArray(uint256[] memory data) external {
+    uint256[] memory processed = new uint256[](data.length);
+    // ...
+}
+
+// ✅ GOOD - Use storage for persistent data
+function updateStorage() external {
+    balances[msg.sender] = 100;
+}
+
+// ❌ BAD - Unnecessary storage reads in loops
+function badExample() external {
+    for (uint256 i = 0; i < users.length; i++) {
+        uint256 balance = balances[users[i]];  // Storage read in loop
+        // ...
+    }
+}
+
+// ✅ GOOD - Cache storage reads
+function goodExample() external {
+    uint256 userBalance = balances[msg.sender];  // Cache outside loop
+    for (uint256 i = 0; i < users.length; i++) {
+        // Use cached value
+    }
+}
+```
+
+## 8. Comments
+
+### Single-Line Comments
+
+```solidity
+// ✅ GOOD - Single-line comments
+// This function transfers tokens to a recipient
+function transfer(address to, uint256 amount) external {
+    // ...
+}
+
+// ❌ BAD - Obvious comments
+// Increment counter
+counter++;
+```
+
+### Multi-Line Comments
+
+```solidity
+// ✅ GOOD - Multi-line comments for complex logic
+/*
+ * This function implements a complex algorithm:
+ * 1. First step
+ * 2. Second step
+ * 3. Final step
+ */
+function complexFunction() external {
+    // ...
+}
+```
+
+### NatSpec Comments
+
+See `commenting-guidelines.mdc` for comprehensive NatSpec standards.
+
+## 9. Numbers
+
+### Use Underscores for Readability
+
+```solidity
+// ✅ GOOD - Underscores for large numbers
+uint256 public constant MAX_SUPPLY = 1_000_000_000;
+uint256 public constant PRICE = 0.001 ether;
+
+// ❌ BAD - Hard to read
+uint256 public constant MAX_SUPPLY = 1000000000;
+```
+
+### Hexadecimal
+
+```solidity
+// ✅ GOOD - Lowercase hex
+address public constant TREASURY = 0x1234567890123456789012345678901234567890;
+
+// ✅ ACCEPTABLE - Uppercase hex (if consistent)
+address public constant TREASURY = 0x1234567890123456789012345678901234567890;
+```
+
+## 10. Strings
+
+### String Literals
+
+```solidity
+// ✅ GOOD - Double quotes
+string memory message = "Hello, World!";
+
+// ❌ BAD - Single quotes (not valid in Solidity)
+string memory message = 'Hello, World!';
+```
+
+## 11. Arrays
+
+### Array Declarations
+
+```solidity
+// ✅ GOOD - Clear array declarations
+uint256[] public balances;
+address[] private whitelist;
+uint256[10] public fixedArray;
+
+// ❌ BAD - Unclear
+uint256[]bal;
+address[]wl;
+```
+
+## 12. Mappings
+
+### Mapping Declarations
+
+```solidity
+// ✅ GOOD - Clear mapping declarations
+mapping(address => uint256) public balances;
+mapping(address => mapping(address => uint256)) public allowances;
+
+// ❌ BAD - Unclear
+mapping(address => uint256)bal;
+```
+
+## 13. Modifiers
+
+### Modifier Definitions
+
+```solidity
+// ✅ GOOD - Descriptive modifier names
+modifier onlyOwner() {
+    require(msg.sender == owner, "Not owner");
+    _;
+}
+
+modifier nonReentrant() {
+    require(!locked, "Reentrant call");
+    locked = true;
+    _;
+    locked = false;
+}
+
+// ❌ BAD - Abbreviated names
+modifier onlyOwn() {
+    // ...
+}
+```
+
+## 14. Events
+
+### Event Definitions
+
+```solidity
+// ✅ GOOD - Indexed parameters for filtering
+event Transfer(address indexed from, address indexed to, uint256 value);
+event Approval(address indexed owner, address indexed spender, uint256 value);
+
+// ✅ GOOD - Emit events for important state changes
+function transfer(address to, uint256 amount) external {
+    balances[msg.sender] -= amount;
+    balances[to] += amount;
+    emit Transfer(msg.sender, to, amount);
+}
+```
+
+## 15. Errors
+
+### Custom Error Definitions
+
+```solidity
+// ✅ GOOD - Descriptive error names with parameters
+error InsufficientBalance(uint256 required, uint256 available);
+error Unauthorized(address account);
+error InvalidAmount(uint256 amount);
+
+// ✅ GOOD - Use custom errors (gas efficient)
+function withdraw(uint256 amount) external {
+    if (balances[msg.sender] < amount) {
+        revert InsufficientBalance(amount, balances[msg.sender]);
+    }
+    // ...
+}
+
+// ❌ BAD - String require (more gas)
+function withdraw(uint256 amount) external {
+    require(balances[msg.sender] >= amount, "Insufficient balance");
+    // ...
+}
+```
+
+## 16. Pre-commit Hooks
+
+**Configuration (`.pre-commit-config.yaml`):**
+
+```yaml
+repos:
+  - repo: https://github.com/pre-commit/mirrors-prettier
+    rev: v3.0.0
+    hooks:
+      - id: prettier
+        files: \.sol$
+  
+  - repo: local
+    hooks:
+      - id: forge-fmt
+        name: forge fmt
+        entry: forge fmt --check
+        language: system
+        pass_filenames: false
+        always_run: true
+```
+
+## Remember
+
+- **Follow Solidity Style Guide** - Official style guide
+- **Use forge fmt** - Automatic code formatting
+- **Descriptive Names** - Never abbreviate
+- **NatSpec Comments** - Document all public/external functions
+- **4 Space Indentation** - Consistent spacing
+- **120 Char Limit** - Maximum line length
+- **Gas Optimization** - Consider gas costs in style decisions

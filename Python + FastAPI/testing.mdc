@@ -1,0 +1,581 @@
+---
+description: Testing philosophy and patterns for Python FastAPI codebase
+globs:
+  - "**/tests/**"
+  - "**/*test*.py"
+  - "**/*_test.py"
+alwaysApply: true
+---
+
+# Testing Guidelines
+
+## Testing Philosophy
+
+Our testing strategy focuses on **testing logic and behavior, not implementation details**. We prioritize testing at the appropriate layer of abstraction to ensure maintainability and meaningful test coverage.
+
+### Core Principles
+
+1. **Test Business Logic in Services** - All business logic should reside in service functions and be thoroughly tested
+2. **Test Repositories Separately** - Data access layer should have isolated tests
+3. **Test API Routes with Integration Tests** - Test the full request/response cycle
+4. **Backend API Routes Test Integration** - Test the service layer through API endpoints
+5. **Focus on Behavior** - Test what the code does, not how it does it
+
+## Testing Stack
+
+- **Framework:** [pytest](https://pytest.org/)
+- **Async Support:** pytest-asyncio
+- **Coverage:** pytest-cov
+- **Mocking:** pytest-mock and unittest.mock
+- **HTTP Testing:** httpx (async HTTP client)
+- **Database Testing:** Test database with fixtures
+
+## What to Test
+
+### 1. Service Layer (`app/services/**`)
+
+**Priority: CRITICAL** - This is where all business logic lives
+
+```python
+# tests/services/test_user_service.py
+import pytest
+from unittest.mock import AsyncMock, MagicMock
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.services.user_service import UserService
+from app.repositories.user_repository import UserRepository
+from app.schemas.user import UserCreate
+from app.core.exceptions import NotFoundError, ConflictError
+from app.models.domain.user import User
+
+
+@pytest.fixture
+def mock_db():
+    """Mock database session."""
+    return AsyncMock(spec=AsyncSession)
+
+
+@pytest.fixture
+def mock_repository(mock_db):
+    """Mock user repository."""
+    return AsyncMock(spec=UserRepository)
+
+
+@pytest.fixture
+def user_service(mock_db, mock_repository):
+    """User service instance."""
+    service = UserService(mock_db)
+    service.repository = mock_repository
+    return service
+
+
+@pytest.mark.asyncio
+async def test_get_user_by_id_success(user_service, mock_repository):
+    """Test getting user by ID successfully."""
+    # Arrange
+    user_id = 1
+    expected_user = User(
+        id=user_id,
+        email="test@example.com",
+        full_name="Test User",
+        is_active=True,
+    )
+    mock_repository.get_by_id.return_value = expected_user
+    
+    # Act
+    result = await user_service.get_user_by_id(user_id)
+    
+    # Assert
+    assert result == expected_user
+    mock_repository.get_by_id.assert_called_once_with(user_id)
+
+
+@pytest.mark.asyncio
+async def test_get_user_by_id_not_found(user_service, mock_repository):
+    """Test getting non-existent user raises NotFoundError."""
+    # Arrange
+    user_id = 999
+    mock_repository.get_by_id.return_value = None
+    
+    # Act & Assert
+    with pytest.raises(NotFoundError, match="User not found"):
+        await user_service.get_user_by_id(user_id)
+
+
+@pytest.mark.asyncio
+async def test_create_user_success(user_service, mock_repository):
+    """Test creating user successfully."""
+    # Arrange
+    user_data = UserCreate(
+        email="new@example.com",
+        full_name="New User",
+        password="securepassword123",
+    )
+    expected_user = User(
+        id=1,
+        email=user_data.email,
+        full_name=user_data.full_name,
+        is_active=True,
+    )
+    mock_repository.get_by_email.return_value = None
+    mock_repository.create.return_value = expected_user
+    
+    # Act
+    result = await user_service.create_user(user_data)
+    
+    # Assert
+    assert result == expected_user
+    mock_repository.get_by_email.assert_called_once_with(user_data.email)
+    mock_repository.create.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_create_user_email_exists(user_service, mock_repository):
+    """Test creating user with existing email raises ConflictError."""
+    # Arrange
+    user_data = UserCreate(
+        email="existing@example.com",
+        full_name="New User",
+        password="securepassword123",
+    )
+    existing_user = User(id=1, email=user_data.email, full_name="Existing")
+    mock_repository.get_by_email.return_value = existing_user
+    
+    # Act & Assert
+    with pytest.raises(ConflictError, match="already exists"):
+        await user_service.create_user(user_data)
+```
+
+### 2. Repository Layer (`app/repositories/**`)
+
+**Priority: HIGH** - Data access must be reliable
+
+```python
+# tests/repositories/test_user_repository.py
+import pytest
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+
+from app.repositories.user_repository import UserRepository
+from app.models.database.user import User as UserModel
+from app.core.exceptions import ConflictError
+
+
+@pytest.mark.asyncio
+async def test_get_by_id_success(db_session: AsyncSession):
+    """Test getting user by ID from database."""
+    # Arrange
+    repository = UserRepository(db_session)
+    user_model = UserModel(
+        email="test@example.com",
+        full_name="Test User",
+        hashed_password="hashed",
+    )
+    db_session.add(user_model)
+    await db_session.commit()
+    await db_session.refresh(user_model)
+    
+    # Act
+    result = await repository.get_by_id(user_model.id)
+    
+    # Assert
+    assert result is not None
+    assert result.id == user_model.id
+    assert result.email == user_model.email
+
+
+@pytest.mark.asyncio
+async def test_create_user_success(db_session: AsyncSession):
+    """Test creating user in database."""
+    # Arrange
+    repository = UserRepository(db_session)
+    user_data = {
+        "email": "new@example.com",
+        "full_name": "New User",
+        "hashed_password": "hashed",
+    }
+    
+    # Act
+    result = await repository.create(user_data)
+    
+    # Assert
+    assert result.id is not None
+    assert result.email == user_data["email"]
+    
+    # Verify in database
+    db_result = await db_session.execute(
+        select(UserModel).where(UserModel.id == result.id)
+    )
+    db_user = db_result.scalar_one()
+    assert db_user.email == user_data["email"]
+```
+
+### 3. API Routes (`app/api/**`)
+
+**Priority: HIGH** - API endpoints must work correctly
+
+```python
+# tests/api/v1/endpoints/test_users.py
+import pytest
+from httpx import AsyncClient
+from fastapi import status
+
+from app.main import app
+
+
+@pytest.mark.asyncio
+async def test_get_user_success(client: AsyncClient, test_user, auth_headers):
+    """Test getting user via API."""
+    # Act
+    response = await client.get(
+        f"/api/v1/users/{test_user.id}",
+        headers=auth_headers,
+    )
+    
+    # Assert
+    assert response.status_code == status.HTTP_200_OK
+    data = response.json()
+    assert data["id"] == test_user.id
+    assert data["email"] == test_user.email
+
+
+@pytest.mark.asyncio
+async def test_get_user_not_found(client: AsyncClient, auth_headers):
+    """Test getting non-existent user returns 404."""
+    # Act
+    response = await client.get(
+        "/api/v1/users/99999",
+        headers=auth_headers,
+    )
+    
+    # Assert
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+    data = response.json()
+    assert "error" in data
+
+
+@pytest.mark.asyncio
+async def test_create_user_success(client: AsyncClient, auth_headers):
+    """Test creating user via API."""
+    # Arrange
+    user_data = {
+        "email": "newuser@example.com",
+        "full_name": "New User",
+        "password": "securepassword123",
+    }
+    
+    # Act
+    response = await client.post(
+        "/api/v1/users",
+        json=user_data,
+        headers=auth_headers,
+    )
+    
+    # Assert
+    assert response.status_code == status.HTTP_201_CREATED
+    data = response.json()
+    assert data["email"] == user_data["email"]
+    assert "id" in data
+
+
+@pytest.mark.asyncio
+async def test_create_user_unauthorized(client: AsyncClient):
+    """Test creating user without authentication returns 401."""
+    # Arrange
+    user_data = {
+        "email": "newuser@example.com",
+        "full_name": "New User",
+        "password": "securepassword123",
+    }
+    
+    # Act
+    response = await client.post(
+        "/api/v1/users",
+        json=user_data,
+    )
+    
+    # Assert
+    assert response.status_code == status.HTTP_401_UNAUTHORIZED
+```
+
+### 4. Utility Functions (`app/utils/**`)
+
+**Priority: MEDIUM** - Pure functions and helpers
+
+```python
+# tests/utils/test_formatters.py
+import pytest
+from datetime import datetime
+
+from app.utils.formatters import format_currency, format_date
+
+
+def test_format_currency_usd():
+    """Test formatting currency in USD."""
+    result = format_currency(1234.56, "USD")
+    assert result == "$1,234.56"
+
+
+def test_format_date():
+    """Test formatting date."""
+    date = datetime(2024, 1, 15, 10, 30, 0)
+    result = format_date(date)
+    assert result == "2024-01-15"
+```
+
+## What NOT to Test
+
+### 1. External Libraries
+
+Don't test third-party library functionality:
+
+```python
+# ❌ DON'T TEST - Testing SQLAlchemy itself
+def test_sqlalchemy_query():
+    result = session.query(User).filter(User.id == 1).first()
+    # This tests SQLAlchemy, not our code
+
+# ✅ DO TEST - Test our repository logic
+async def test_repository_get_by_id():
+    user = await repository.get_by_id(1)
+    assert user is not None
+```
+
+### 2. Framework Code
+
+Don't test FastAPI framework functionality:
+
+```python
+# ❌ DON'T TEST - Testing FastAPI routing
+def test_fastapi_router():
+    # Testing framework, not our code
+
+# ✅ DO TEST - Test our route handlers
+async def test_get_user_endpoint():
+    response = await client.get("/api/v1/users/1")
+    assert response.status_code == 200
+```
+
+## Test Organization
+
+```
+tests/
+├── conftest.py              # Shared fixtures
+├── api/
+│   └── v1/
+│       └── endpoints/
+│           ├── test_users.py
+│           └── test_auth.py
+├── services/
+│   ├── test_user_service.py
+│   └── test_item_service.py
+├── repositories/
+│   ├── test_user_repository.py
+│   └── test_item_repository.py
+└── utils/
+    └── test_formatters.py
+```
+
+## Test Fixtures
+
+```python
+# tests/conftest.py
+import pytest
+import asyncio
+from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
+
+from app.main import app
+from app.core.database import Base, get_db
+from app.models.database.user import User as UserModel
+from app.core.security import get_password_hash
+
+
+# Database fixtures
+@pytest.fixture(scope="session")
+def event_loop():
+    """Create event loop for async tests."""
+    loop = asyncio.get_event_loop_policy().new_event_loop()
+    yield loop
+    loop.close()
+
+
+@pytest.fixture(scope="function")
+async def db_session():
+    """Create test database session."""
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    
+    async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    async with async_session() as session:
+        yield session
+        await session.rollback()
+    
+    await engine.dispose()
+
+
+@pytest.fixture
+async def client(db_session: AsyncSession):
+    """Create test HTTP client."""
+    async def override_get_db():
+        yield db_session
+    
+    app.dependency_overrides[get_db] = override_get_db
+    
+    async with AsyncClient(app=app, base_url="http://test") as ac:
+        yield ac
+    
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture
+async def test_user(db_session: AsyncSession):
+    """Create test user."""
+    user = UserModel(
+        email="test@example.com",
+        full_name="Test User",
+        hashed_password=get_password_hash("testpassword123"),
+        is_active=True,
+    )
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
+    return user
+
+
+@pytest.fixture
+async def auth_headers(client: AsyncClient, test_user):
+    """Get authentication headers."""
+    response = await client.post(
+        "/api/v1/auth/login",
+        data={
+            "username": test_user.email,
+            "password": "testpassword123",
+        },
+    )
+    token = response.json()["access_token"]
+    return {"Authorization": f"Bearer {token}"}
+```
+
+## Testing Best Practices
+
+### 1. Test Behavior, Not Implementation
+
+```python
+# ❌ BAD - Testing implementation details
+def test_service_calls_repository():
+    assert mock_repository.get_by_id.called
+
+# ✅ GOOD - Testing behavior
+async def test_get_user_returns_user():
+    user = await service.get_user_by_id(1)
+    assert user.id == 1
+```
+
+### 2. Use Descriptive Test Names
+
+```python
+# ❌ BAD
+def test_user_creation():
+    pass
+
+# ✅ GOOD
+def test_create_user_with_valid_data_returns_user():
+    pass
+
+def test_create_user_with_existing_email_raises_conflict_error():
+    pass
+```
+
+### 3. Arrange-Act-Assert Pattern
+
+```python
+def test_example():
+    # Arrange
+    user_data = UserCreate(email="test@example.com", ...)
+    
+    # Act
+    result = await service.create_user(user_data)
+    
+    # Assert
+    assert result.email == user_data.email
+```
+
+### 4. Isolate External Dependencies
+
+```python
+# Always mock external services
+@pytest.fixture
+def mock_external_api():
+    with patch("app.services.external_api_client") as mock:
+        yield mock
+```
+
+## Running Tests
+
+```bash
+# Run all tests
+pytest
+
+# Run with coverage
+pytest --cov=app --cov-report=html
+
+# Run specific test file
+pytest tests/services/test_user_service.py
+
+# Run specific test
+pytest tests/services/test_user_service.py::test_get_user_by_id_success
+
+# Run in watch mode (requires pytest-watch)
+ptw
+```
+
+## Coverage Goals
+
+- **Services (`app/services/`)**: 100% coverage required
+- **Repositories (`app/repositories/`)**: 100% coverage required
+- **API Routes**: 90%+ coverage recommended
+- **Utility Functions**: 90%+ coverage recommended
+- **Overall**: Focus on critical business logic, not lines of code
+
+## Mocking Guidelines
+
+### 1. Mock at the Boundary
+
+```python
+# Mock external services, not internal modules
+from unittest.mock import patch
+
+@patch("app.services.external_api_client")  # ✅ Good
+async def test_service():
+    pass
+
+@patch("app.services.internal_helper")  # ❌ Avoid
+async def test_service():
+    pass
+```
+
+### 2. Use Consistent Mock Patterns
+
+```python
+# Create reusable mock factories
+def create_mock_user(overrides=None):
+    """Create mock user."""
+    defaults = {
+        "id": 1,
+        "email": "test@example.com",
+        "full_name": "Test User",
+    }
+    if overrides:
+        defaults.update(overrides)
+    return User(**defaults)
+```
+
+## Remember
+
+- **Test Behavior**: Focus on what the code does, not how
+- **Isolate Dependencies**: Mock external services and databases
+- **Fast Feedback**: Tests should run quickly to encourage TDD
+- **Clear Names**: Test names should describe what is being tested
+- **One Assertion**: Prefer one assertion per test when possible

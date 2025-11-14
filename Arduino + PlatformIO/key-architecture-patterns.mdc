@@ -1,0 +1,982 @@
+---
+description: Key architectural patterns and design principles for embedded systems
+globs:
+  - "**/src/**"
+  - "**/lib/**"
+  - "**/*.cpp"
+  - "**/*.h"
+alwaysApply: true
+---
+
+# Key Architectural Patterns
+
+## Overview
+
+This document outlines core architectural patterns for embedded systems development. These patterns ensure code maintainability, reliability, and efficiency while respecting the constraints of microcontroller environments.
+
+## State Machine Pattern
+
+### Finite State Machines (FSM)
+
+State machines are fundamental for organizing complex embedded system behavior into manageable, predictable states.
+
+```cpp
+// include/patterns/state_machine.h
+#pragma once
+#include <stdint.h>
+
+// Generic state machine framework
+template<typename StateEnum, typename EventEnum>
+class StateMachine {
+public:
+    using StateHandler = void (StateMachine::*)();
+    using TransitionHandler = bool (StateMachine::*)(EventEnum);
+    
+    struct Transition {
+        StateEnum fromState;
+        EventEnum event;
+        StateEnum toState;
+        TransitionHandler guard;  // Optional guard condition
+    };
+    
+protected:
+    StateEnum currentState;
+    StateEnum previousState;
+    StateHandler* stateHandlers;
+    const Transition* transitions;
+    size_t transitionCount;
+    
+public:
+    StateMachine(StateEnum initial, StateHandler* handlers, 
+                 const Transition* trans, size_t count)
+        : currentState(initial), previousState(initial),
+          stateHandlers(handlers), transitions(trans), 
+          transitionCount(count) {}
+    
+    void update() {
+        // Execute current state handler
+        if (stateHandlers[static_cast<size_t>(currentState)]) {
+            (this->*stateHandlers[static_cast<size_t>(currentState)])();
+        }
+    }
+    
+    bool processEvent(EventEnum event) {
+        // Find matching transition
+        for (size_t i = 0; i < transitionCount; i++) {
+            const Transition& t = transitions[i];
+            if (t.fromState == currentState && t.event == event) {
+                // Check guard condition if present
+                if (t.guard && !(this->*t.guard)(event)) {
+                    continue;
+                }
+                
+                // Perform transition
+                previousState = currentState;
+                currentState = t.toState;
+                onTransition(previousState, currentState);
+                return true;
+            }
+        }
+        return false;
+    }
+    
+    StateEnum getState() const { return currentState; }
+    StateEnum getPreviousState() const { return previousState; }
+    
+protected:
+    virtual void onTransition(StateEnum from, StateEnum to) {}
+};
+
+// Example: LED Blinker State Machine
+class LEDBlinker : public StateMachine<uint8_t, uint8_t> {
+public:
+    // States
+    enum State : uint8_t {
+        OFF,
+        ON,
+        BLINKING
+    };
+    
+    // Events
+    enum Event : uint8_t {
+        TURN_ON,
+        TURN_OFF,
+        START_BLINK,
+        TIMER_EXPIRED
+    };
+    
+private:
+    static constexpr uint8_t LED_PIN = LED_BUILTIN;
+    uint32_t blinkInterval = 500;
+    uint32_t lastBlink = 0;
+    
+    // State handlers
+    void stateOff() {
+        digitalWrite(LED_PIN, LOW);
+    }
+    
+    void stateOn() {
+        digitalWrite(LED_PIN, HIGH);
+    }
+    
+    void stateBlinking() {
+        uint32_t now = millis();
+        if (now - lastBlink >= blinkInterval) {
+            lastBlink = now;
+            digitalWrite(LED_PIN, !digitalRead(LED_PIN));
+        }
+    }
+    
+    // State handler table
+    StateHandler handlers[3] = {
+        &LEDBlinker::stateOff,
+        &LEDBlinker::stateOn,
+        &LEDBlinker::stateBlinking
+    };
+    
+    // Transition table
+    static constexpr Transition transitionTable[] = {
+        {OFF, TURN_ON, ON, nullptr},
+        {OFF, START_BLINK, BLINKING, nullptr},
+        {ON, TURN_OFF, OFF, nullptr},
+        {ON, START_BLINK, BLINKING, nullptr},
+        {BLINKING, TURN_ON, ON, nullptr},
+        {BLINKING, TURN_OFF, OFF, nullptr}
+    };
+    
+public:
+    LEDBlinker() : StateMachine(OFF, handlers, transitionTable, 
+                                sizeof(transitionTable)/sizeof(Transition)) {
+        pinMode(LED_PIN, OUTPUT);
+    }
+    
+    void setBlinkInterval(uint32_t ms) { blinkInterval = ms; }
+};
+```
+
+### Hierarchical State Machines
+
+For complex systems, hierarchical state machines provide better organization:
+
+```cpp
+// include/patterns/hsm.h
+#pragma once
+
+// Hierarchical State Machine base
+template<typename StateEnum>
+class HierarchicalStateMachine {
+protected:
+    struct StateNode {
+        StateEnum state;
+        StateEnum parent;
+        void (HierarchicalStateMachine::*enter)();
+        void (HierarchicalStateMachine::*exit)();
+        void (HierarchicalStateMachine::*update)();
+    };
+    
+    const StateNode* states;
+    size_t stateCount;
+    StateEnum currentState;
+    
+    void transitionTo(StateEnum target) {
+        // Exit current state hierarchy
+        StateEnum state = currentState;
+        while (state != getCommonAncestor(currentState, target)) {
+            auto& node = findState(state);
+            if (node.exit) {
+                (this->*(node.exit))();
+            }
+            state = node.parent;
+        }
+        
+        // Enter target state hierarchy
+        enterState(target);
+        currentState = target;
+    }
+    
+    void enterState(StateEnum state) {
+        if (state == StateEnum(-1)) return;
+        
+        auto& node = findState(state);
+        enterState(node.parent);  // Recursive parent entry
+        
+        if (node.enter) {
+            (this->*(node.enter))();
+        }
+    }
+    
+    const StateNode& findState(StateEnum state) {
+        for (size_t i = 0; i < stateCount; i++) {
+            if (states[i].state == state) {
+                return states[i];
+            }
+        }
+        // Error handling in embedded: return safe default
+        return states[0];
+    }
+    
+    StateEnum getCommonAncestor(StateEnum a, StateEnum b) {
+        // Implementation to find common parent state
+        // Simplified for example
+        return StateEnum(-1);
+    }
+    
+public:
+    HierarchicalStateMachine(const StateNode* stateArray, size_t count)
+        : states(stateArray), stateCount(count), currentState(StateEnum(0)) {}
+    
+    void update() {
+        auto& node = findState(currentState);
+        if (node.update) {
+            (this->*(node.update))();
+        }
+    }
+};
+```
+
+## Event-Driven Architecture
+
+### Event Queue Pattern
+
+Non-blocking event handling for responsive embedded systems:
+
+```cpp
+// include/patterns/event_system.h
+#pragma once
+#include <stdint.h>
+
+// Simple circular buffer for events
+template<typename EventType, size_t QUEUE_SIZE>
+class EventQueue {
+private:
+    EventType buffer[QUEUE_SIZE];
+    volatile size_t head;
+    volatile size_t tail;
+    
+public:
+    EventQueue() : head(0), tail(0) {}
+    
+    bool push(const EventType& event) {
+        size_t next = (head + 1) % QUEUE_SIZE;
+        if (next == tail) {
+            return false;  // Queue full
+        }
+        
+        buffer[head] = event;
+        head = next;
+        return true;
+    }
+    
+    bool pop(EventType& event) {
+        if (tail == head) {
+            return false;  // Queue empty
+        }
+        
+        event = buffer[tail];
+        tail = (tail + 1) % QUEUE_SIZE;
+        return true;
+    }
+    
+    bool isEmpty() const {
+        return tail == head;
+    }
+    
+    size_t size() const {
+        if (head >= tail) {
+            return head - tail;
+        }
+        return QUEUE_SIZE - tail + head;
+    }
+};
+
+// Event dispatcher
+template<typename EventEnum, size_t MAX_HANDLERS = 10>
+class EventDispatcher {
+public:
+    using EventHandler = void (*)(EventEnum event, void* data);
+    
+private:
+    struct HandlerEntry {
+        EventEnum event;
+        EventHandler handler;
+        bool active;
+    };
+    
+    HandlerEntry handlers[MAX_HANDLERS];
+    
+public:
+    EventDispatcher() {
+        for (auto& h : handlers) {
+            h.active = false;
+        }
+    }
+    
+    bool subscribe(EventEnum event, EventHandler handler) {
+        for (auto& h : handlers) {
+            if (!h.active) {
+                h.event = event;
+                h.handler = handler;
+                h.active = true;
+                return true;
+            }
+        }
+        return false;  // No free slots
+    }
+    
+    bool unsubscribe(EventEnum event, EventHandler handler) {
+        for (auto& h : handlers) {
+            if (h.active && h.event == event && h.handler == handler) {
+                h.active = false;
+                return true;
+            }
+        }
+        return false;
+    }
+    
+    void dispatch(EventEnum event, void* data = nullptr) {
+        for (const auto& h : handlers) {
+            if (h.active && h.event == event) {
+                h.handler(event, data);
+            }
+        }
+    }
+};
+
+// Event-driven system example
+enum class SystemEvent : uint8_t {
+    BUTTON_PRESS,
+    BUTTON_RELEASE,
+    TIMER_TICK,
+    SENSOR_READING,
+    NETWORK_MESSAGE,
+    LOW_BATTERY
+};
+
+struct Event {
+    SystemEvent type;
+    union {
+        uint32_t timestamp;
+        uint16_t sensorValue;
+        uint8_t buttonId;
+    } data;
+};
+
+class EventDrivenSystem {
+private:
+    EventQueue<Event, 32> eventQueue;
+    EventDispatcher<SystemEvent> dispatcher;
+    
+public:
+    void init() {
+        // Register event handlers
+        dispatcher.subscribe(SystemEvent::BUTTON_PRESS, 
+            [](SystemEvent, void* data) {
+                // Handle button press
+            });
+            
+        dispatcher.subscribe(SystemEvent::LOW_BATTERY,
+            [](SystemEvent, void* data) {
+                // Enter low power mode
+            });
+    }
+    
+    void postEvent(const Event& event) {
+        // Thread-safe for ISR use
+        noInterrupts();
+        eventQueue.push(event);
+        interrupts();
+    }
+    
+    void processEvents() {
+        Event event;
+        while (eventQueue.pop(event)) {
+            dispatcher.dispatch(event.type, &event.data);
+        }
+    }
+};
+```
+
+## Task Scheduling Pattern
+
+### Cooperative Multitasking
+
+Simple task scheduler for non-preemptive multitasking:
+
+```cpp
+// include/patterns/task_scheduler.h
+#pragma once
+#include <functional>
+
+class Task {
+private:
+    using TaskFunction = std::function<void()>;
+    
+    TaskFunction function;
+    uint32_t interval;
+    uint32_t lastRun;
+    bool enabled;
+    bool runOnce;
+    uint8_t priority;
+    
+public:
+    Task(TaskFunction func, uint32_t intervalMs, uint8_t prio = 5)
+        : function(func), interval(intervalMs), lastRun(0),
+          enabled(false), runOnce(false), priority(prio) {}
+    
+    void enable() { 
+        enabled = true; 
+        lastRun = millis();
+    }
+    
+    void disable() { enabled = false; }
+    
+    void setInterval(uint32_t ms) { interval = ms; }
+    
+    void runOnceIn(uint32_t ms) {
+        interval = ms;
+        runOnce = true;
+        enable();
+    }
+    
+    bool isDue() const {
+        if (!enabled) return false;
+        return (millis() - lastRun) >= interval;
+    }
+    
+    void execute() {
+        if (!enabled) return;
+        
+        function();
+        lastRun = millis();
+        
+        if (runOnce) {
+            enabled = false;
+            runOnce = false;
+        }
+    }
+    
+    uint8_t getPriority() const { return priority; }
+};
+
+template<size_t MAX_TASKS>
+class TaskScheduler {
+private:
+    Task* tasks[MAX_TASKS];
+    size_t taskCount;
+    
+public:
+    TaskScheduler() : taskCount(0) {}
+    
+    bool addTask(Task* task) {
+        if (taskCount >= MAX_TASKS) return false;
+        
+        tasks[taskCount++] = task;
+        
+        // Sort by priority
+        sortTasks();
+        return true;
+    }
+    
+    void execute() {
+        for (size_t i = 0; i < taskCount; i++) {
+            if (tasks[i]->isDue()) {
+                tasks[i]->execute();
+                
+                // Optional: yield to higher priority tasks
+                if (i < taskCount - 1 && tasks[i + 1]->getPriority() > tasks[i]->getPriority()) {
+                    break;
+                }
+            }
+        }
+    }
+    
+private:
+    void sortTasks() {
+        // Simple bubble sort (fine for small task counts)
+        for (size_t i = 0; i < taskCount - 1; i++) {
+            for (size_t j = 0; j < taskCount - i - 1; j++) {
+                if (tasks[j]->getPriority() < tasks[j + 1]->getPriority()) {
+                    Task* temp = tasks[j];
+                    tasks[j] = tasks[j + 1];
+                    tasks[j + 1] = temp;
+                }
+            }
+        }
+    }
+};
+
+// Usage example
+TaskScheduler<10> scheduler;
+
+Task sensorTask([]() {
+    // Read sensors
+}, 100, 8);  // High priority, 100ms interval
+
+Task displayTask([]() {
+    // Update display
+}, 500, 5);  // Medium priority, 500ms interval
+
+Task networkTask([]() {
+    // Check network
+}, 5000, 3);  // Low priority, 5s interval
+
+void setup() {
+    scheduler.addTask(&sensorTask);
+    scheduler.addTask(&displayTask);
+    scheduler.addTask(&networkTask);
+    
+    sensorTask.enable();
+    displayTask.enable();
+    networkTask.enable();
+}
+
+void loop() {
+    scheduler.execute();
+}
+```
+
+## Module System Pattern
+
+### Component-Based Architecture
+
+Modular system design for maintainable embedded code:
+
+```cpp
+// include/patterns/module_system.h
+#pragma once
+
+// Base module interface
+class Module {
+protected:
+    const char* name;
+    bool initialized;
+    
+public:
+    Module(const char* moduleName) 
+        : name(moduleName), initialized(false) {}
+    
+    virtual bool init() = 0;
+    virtual void update() = 0;
+    virtual void shutdown() {
+        initialized = false;
+    }
+    
+    const char* getName() const { return name; }
+    bool isInitialized() const { return initialized; }
+};
+
+// Module manager
+template<size_t MAX_MODULES>
+class ModuleManager {
+private:
+    Module* modules[MAX_MODULES];
+    size_t moduleCount;
+    
+public:
+    ModuleManager() : moduleCount(0) {}
+    
+    bool registerModule(Module* module) {
+        if (moduleCount >= MAX_MODULES) return false;
+        
+        modules[moduleCount++] = module;
+        return true;
+    }
+    
+    bool initializeAll() {
+        bool success = true;
+        
+        for (size_t i = 0; i < moduleCount; i++) {
+            Serial.print(F("Initializing "));
+            Serial.print(modules[i]->getName());
+            Serial.print(F("... "));
+            
+            if (modules[i]->init()) {
+                Serial.println(F("OK"));
+            } else {
+                Serial.println(F("FAILED"));
+                success = false;
+            }
+        }
+        
+        return success;
+    }
+    
+    void updateAll() {
+        for (size_t i = 0; i < moduleCount; i++) {
+            if (modules[i]->isInitialized()) {
+                modules[i]->update();
+            }
+        }
+    }
+    
+    void shutdownAll() {
+        for (size_t i = 0; i < moduleCount; i++) {
+            modules[i]->shutdown();
+        }
+    }
+    
+    Module* findModule(const char* name) {
+        for (size_t i = 0; i < moduleCount; i++) {
+            if (strcmp(modules[i]->getName(), name) == 0) {
+                return modules[i];
+            }
+        }
+        return nullptr;
+    }
+};
+
+// Example modules
+class SensorModule : public Module {
+private:
+    float temperature;
+    float humidity;
+    uint32_t lastRead;
+    
+public:
+    SensorModule() : Module("Sensors"), temperature(0), humidity(0) {}
+    
+    bool init() override {
+        // Initialize sensors
+        initialized = true;
+        return true;
+    }
+    
+    void update() override {
+        if (millis() - lastRead > 2000) {
+            // Read sensors
+            lastRead = millis();
+        }
+    }
+    
+    float getTemperature() const { return temperature; }
+    float getHumidity() const { return humidity; }
+};
+
+class NetworkModule : public Module {
+private:
+    bool connected;
+    
+public:
+    NetworkModule() : Module("Network"), connected(false) {}
+    
+    bool init() override {
+        // Initialize network
+        initialized = true;
+        return true;
+    }
+    
+    void update() override {
+        // Handle network tasks
+    }
+    
+    bool isConnected() const { return connected; }
+};
+```
+
+## Registry Pattern
+
+### Dynamic Component Registration
+
+For systems that need runtime component discovery:
+
+```cpp
+// include/patterns/registry.h
+#pragma once
+#include <functional>
+
+// Generic registry for components
+template<typename ComponentType, size_t MAX_COMPONENTS>
+class Registry {
+public:
+    using FactoryFunction = std::function<ComponentType*()>;
+    
+private:
+    struct Entry {
+        const char* name;
+        FactoryFunction factory;
+        bool active;
+    };
+    
+    Entry entries[MAX_COMPONENTS];
+    
+public:
+    Registry() {
+        for (auto& entry : entries) {
+            entry.active = false;
+        }
+    }
+    
+    bool register(const char* name, FactoryFunction factory) {
+        for (auto& entry : entries) {
+            if (!entry.active) {
+                entry.name = name;
+                entry.factory = factory;
+                entry.active = true;
+                return true;
+            }
+        }
+        return false;
+    }
+    
+    ComponentType* create(const char* name) {
+        for (const auto& entry : entries) {
+            if (entry.active && strcmp(entry.name, name) == 0) {
+                return entry.factory();
+            }
+        }
+        return nullptr;
+    }
+    
+    void list(void (*callback)(const char*)) {
+        for (const auto& entry : entries) {
+            if (entry.active) {
+                callback(entry.name);
+            }
+        }
+    }
+};
+
+// Example: Sensor registry
+class ISensor {
+public:
+    virtual ~ISensor() = default;
+    virtual bool init() = 0;
+    virtual float read() = 0;
+    virtual const char* getType() = 0;
+};
+
+Registry<ISensor, 10> sensorRegistry;
+
+// Self-registering sensor
+class TemperatureSensor : public ISensor {
+public:
+    bool init() override { return true; }
+    float read() override { return 25.0f; }
+    const char* getType() override { return "Temperature"; }
+    
+    // Static registration
+    static bool registered;
+    static bool registerSensor() {
+        return sensorRegistry.register("DS18B20", []() -> ISensor* {
+            return new TemperatureSensor();
+        });
+    }
+};
+
+bool TemperatureSensor::registered = TemperatureSensor::registerSensor();
+```
+
+## Command Pattern
+
+### Command Processing System
+
+For serial command interfaces and remote control:
+
+```cpp
+// include/patterns/command_system.h
+#pragma once
+
+// Command interface
+class ICommand {
+public:
+    virtual ~ICommand() = default;
+    virtual void execute(const char* args) = 0;
+    virtual const char* getName() = 0;
+    virtual const char* getHelp() = 0;
+};
+
+// Command processor
+template<size_t MAX_COMMANDS>
+class CommandProcessor {
+private:
+    ICommand* commands[MAX_COMMANDS];
+    size_t commandCount;
+    char buffer[128];
+    size_t bufferIndex;
+    
+public:
+    CommandProcessor() : commandCount(0), bufferIndex(0) {}
+    
+    bool registerCommand(ICommand* cmd) {
+        if (commandCount >= MAX_COMMANDS) return false;
+        
+        commands[commandCount++] = cmd;
+        return true;
+    }
+    
+    void processChar(char c) {
+        if (c == '\n' || c == '\r') {
+            if (bufferIndex > 0) {
+                buffer[bufferIndex] = '\0';
+                executeCommand(buffer);
+                bufferIndex = 0;
+            }
+        } else if (bufferIndex < sizeof(buffer) - 1) {
+            buffer[bufferIndex++] = c;
+        }
+    }
+    
+    void executeCommand(char* cmdLine) {
+        // Parse command and arguments
+        char* cmd = strtok(cmdLine, " ");
+        if (!cmd) return;
+        
+        char* args = strtok(nullptr, "");
+        
+        // Find and execute command
+        for (size_t i = 0; i < commandCount; i++) {
+            if (strcmp(commands[i]->getName(), cmd) == 0) {
+                commands[i]->execute(args);
+                return;
+            }
+        }
+        
+        // Command not found
+        Serial.print(F("Unknown command: "));
+        Serial.println(cmd);
+    }
+    
+    void printHelp() {
+        Serial.println(F("Available commands:"));
+        for (size_t i = 0; i < commandCount; i++) {
+            Serial.print(F("  "));
+            Serial.print(commands[i]->getName());
+            Serial.print(F(" - "));
+            Serial.println(commands[i]->getHelp());
+        }
+    }
+};
+
+// Example commands
+class LEDCommand : public ICommand {
+public:
+    void execute(const char* args) override {
+        if (strcmp(args, "on") == 0) {
+            digitalWrite(LED_BUILTIN, HIGH);
+            Serial.println(F("LED turned on"));
+        } else if (strcmp(args, "off") == 0) {
+            digitalWrite(LED_BUILTIN, LOW);
+            Serial.println(F("LED turned off"));
+        } else {
+            Serial.println(F("Usage: led [on|off]"));
+        }
+    }
+    
+    const char* getName() override { return "led"; }
+    const char* getHelp() override { return "Control the LED"; }
+};
+
+class StatusCommand : public ICommand {
+public:
+    void execute(const char* args) override {
+        Serial.print(F("Uptime: "));
+        Serial.print(millis() / 1000);
+        Serial.println(F(" seconds"));
+        
+        Serial.print(F("Free memory: "));
+        Serial.print(freeMemory());
+        Serial.println(F(" bytes"));
+    }
+    
+    const char* getName() override { return "status"; }
+    const char* getHelp() override { return "Show system status"; }
+    
+private:
+    int freeMemory() {
+        extern int __heap_start, *__brkval;
+        int v;
+        return (int) &v - (__brkval == 0 ? (int) &__heap_start : (int) __brkval);
+    }
+};
+```
+
+## Observer Pattern
+
+### Event Notification System
+
+```cpp
+// include/patterns/observer.h
+#pragma once
+
+template<typename EventData, size_t MAX_OBSERVERS = 8>
+class Subject {
+public:
+    using Observer = void (*)(const EventData&);
+    
+private:
+    Observer observers[MAX_OBSERVERS];
+    size_t observerCount;
+    
+public:
+    Subject() : observerCount(0) {}
+    
+    bool attach(Observer observer) {
+        if (observerCount >= MAX_OBSERVERS) return false;
+        
+        // Prevent duplicate registration
+        for (size_t i = 0; i < observerCount; i++) {
+            if (observers[i] == observer) return true;
+        }
+        
+        observers[observerCount++] = observer;
+        return true;
+    }
+    
+    bool detach(Observer observer) {
+        for (size_t i = 0; i < observerCount; i++) {
+            if (observers[i] == observer) {
+                // Shift remaining observers
+                for (size_t j = i; j < observerCount - 1; j++) {
+                    observers[j] = observers[j + 1];
+                }
+                observerCount--;
+                return true;
+            }
+        }
+        return false;
+    }
+    
+    void notify(const EventData& data) {
+        // Iterate backwards to allow safe detachment during notification
+        for (int i = observerCount - 1; i >= 0; i--) {
+            observers[i](data);
+        }
+    }
+};
+
+// Example usage
+struct TemperatureData {
+    float celsius;
+    uint32_t timestamp;
+};
+
+Subject<TemperatureData> temperatureSubject;
+
+void onTemperatureChange(const TemperatureData& data) {
+    if (data.celsius > 30.0f) {
+        // Turn on cooling
+    }
+}
+
+void setup() {
+    temperatureSubject.attach(onTemperatureChange);
+    temperatureSubject.attach([](const TemperatureData& data) {
+        // Log temperature
+        Serial.print(F("Temperature: "));
+        Serial.println(data.celsius);
+    });
+}
+```
+
+## Best Practices Summary
+
+1. **State Machines**: Use for complex behavior management
+2. **Event-Driven**: Prefer events over polling for responsiveness
+3. **Task Scheduling**: Implement cooperative multitasking for concurrent operations
+4. **Modular Design**: Create independent, reusable modules
+5. **Registry Pattern**: Enable runtime component discovery
+6. **Command Pattern**: Implement flexible control interfaces
+7. **Observer Pattern**: Decouple components with notifications
+8. **Memory Efficiency**: Use static allocation and templates
+9. **Type Safety**: Leverage compile-time checks
+10. **Documentation**: Document architectural decisions and patterns

@@ -1,0 +1,201 @@
+---
+description: Backend architecture, API patterns, and service integrations
+globs:
+  - "**/api/**"
+  - "**/services/**"
+  - "**/schemas/**"
+  - "**/utils/api/**"
+  - "**/utils/auth/**"
+alwaysApply: true
+---
+
+# Backend / API Architecture
+
+## Overview
+
+This document defines the backend architecture, API patterns, and external service integrations used in the application.
+
+## API Routes
+
+**Framework:** [Next.js API Routes](https://nextjs.org/docs/pages/building-your-application/routing/api-routes)
+
+**Location:** `src/pages/api/` directory
+
+**Pattern:** Thin route handlers that delegate to services
+
+**Example:**
+
+```typescript
+// src/pages/api/users/[id].ts
+import { withAuthentication } from '@/utils/api/withAuthentication';
+import { withErrorHandler } from '@/utils/api/errorHandler';
+import { getUserProfile } from '@/services/userService';
+
+export default withAuthentication(
+  withErrorHandler(async (req, res) => {
+    if (req.method !== 'GET') {
+      return res.status(405).json({ error: 'Method not allowed' });
+    }
+
+    const user = await getUserProfile(req.query.id as string);
+    res.status(200).json({ data: user });
+  })
+);
+```
+
+## Backend as a Service (BaaS)
+
+**Service:** [Supabase](https://supabase.com/)
+
+### Authentication
+
+- **Service:** Supabase Auth
+- Handles user login, signup, password reset
+- Provides JWT tokens for API authentication
+- Session management built-in
+
+**Usage:**
+
+```typescript
+import { supabase } from '@/lib/supabase';
+
+// Sign up
+const { data, error } = await supabase.auth.signUp({
+  email: 'user@example.com',
+  password: 'password'
+});
+
+// Sign in
+const { data, error } = await supabase.auth.signInWithPassword({
+  email: 'user@example.com',
+  password: 'password'
+});
+```
+
+### Database
+
+- **Type:** PostgreSQL database
+- **Storage:** Application data (users, characters, tweets, workflows, etc.)
+- **Schema:** Defined in `database_sql/` directory
+- **Client:** Supabase client library for queries
+
+**Usage:**
+
+```typescript
+import { supabase } from '@/lib/supabase';
+
+// Query data
+const { data, error } = await supabase
+  .from('users')
+  .select('*')
+  .eq('status', 'active')
+  .single();
+```
+
+### Storage
+
+- **Purpose:** File storage (e.g., character profile pictures)
+- **Buckets:** Organized by purpose (e.g., `character-pfp` bucket)
+- **Access:** Controlled via Supabase storage policies
+
+**Usage:**
+
+```typescript
+import { supabase } from '@/lib/supabase';
+
+// Upload file
+const { data, error } = await supabase.storage
+  .from('character-pfp')
+  .upload('path/to/file.jpg', file);
+
+// Get public URL
+const { data } = supabase.storage
+  .from('character-pfp')
+  .getPublicUrl('path/to/file.jpg');
+```
+
+## API Validation
+
+**Library:** [Yup](https://github.com/jquense/yup)
+
+**Location:** `src/schemas/` directory
+
+**Pattern:** Schema definitions validated via Higher-Order Functions (HOFs)
+
+**HOFs Available:**
+
+- `withBodyValidation` - Validates request body
+- `withQueryValidation` - Validates query parameters
+- `withAuthenticatedValidation` - Combines auth + body validation
+- `withAuthenticatedQueryValidation` - Combines auth + query validation
+
+**Example:**
+
+```typescript
+// src/schemas/userSchema.ts
+import * as yup from 'yup';
+
+export const createUserSchema = yup.object({
+  email: yup.string().email().required(),
+  name: yup.string().min(2).required(),
+  age: yup.number().positive().integer()
+});
+
+// src/pages/api/users/create.ts
+import { withAuthenticatedValidation } from '@/utils/api/withAuthenticatedValidation';
+import { createUserSchema } from '@/schemas/userSchema';
+import { createUser } from '@/services/userService';
+
+export default withAuthenticatedValidation(
+  createUserSchema,
+  async (req, res) => {
+    // req.body is already validated and typed
+    const user = await createUser(req.body);
+    res.status(201).json({ data: user });
+  }
+);
+```
+
+## API Authentication
+
+**Pattern:** Custom Higher-Order Functions (HOFs)
+
+**Location:** `src/utils/api/` and `src/utils/auth/`
+
+**Available HOFs:**
+
+1. **`withAuthentication`** - Validates JWT token and attaches user to request
+2. **`withApiKeyAuth`** - Validates API key authentication
+3. **`withAuthenticatedValidation`** - Combines authentication + body validation
+4. **`withAuthenticatedQueryValidation`** - Combines authentication + query validation
+
+**Example:**
+
+```typescript
+// src/utils/api/withAuthentication.ts
+export function withAuthentication(
+  handler: (req: AuthenticatedRequest, res: NextApiResponse) => Promise<void>
+) {
+  return async (req: NextApiRequest, res: NextApiResponse) => {
+    const token = extractToken(req);
+    const user = await validateToken(token);
+    
+    if (!user) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    (req as AuthenticatedRequest).user = user;
+    return handler(req as AuthenticatedRequest, res);
+  };
+}
+```
+
+## Best Practices
+
+1. **Thin Route Handlers:** Keep API routes thin, delegate to services
+2. **Always Validate:** Use HOFs for validation and authentication
+3. **Error Handling:** Use `withErrorHandler` for consistent error responses
+4. **Service Layer:** All business logic in services, not routes
+5. **Type Safety:** Use TypeScript types from schemas for validated data
+6. **Security:** Never expose sensitive data in error messages or logs
+7. **Consistent Responses:** Use consistent response format (`{ data: ... }` or `{ error: ... }`)

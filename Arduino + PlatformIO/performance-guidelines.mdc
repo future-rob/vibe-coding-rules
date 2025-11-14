@@ -1,0 +1,782 @@
+---
+description: Performance optimization techniques and best practices for embedded systems
+globs:
+  - "**/*.cpp"
+  - "**/*.c"
+  - "**/*.h"
+  - "**/src/**"
+alwaysApply: true
+---
+
+# Performance Guidelines
+
+## Overview
+
+Performance optimization in embedded systems requires balancing execution speed, memory usage, power consumption, and code size. This document provides techniques for achieving optimal performance while maintaining code readability and reliability.
+
+## Performance Measurement
+
+### Timing and Profiling
+
+```cpp
+// Microsecond-precision timing
+class PerformanceTimer {
+private:
+    uint32_t startTime;
+    const char* name;
+    
+public:
+    PerformanceTimer(const char* timerName) : name(timerName) {
+        startTime = micros();
+    }
+    
+    ~PerformanceTimer() {
+        uint32_t elapsed = micros() - startTime;
+        Serial.print(F("Timer ["));
+        Serial.print(name);
+        Serial.print(F("]: "));
+        Serial.print(elapsed);
+        Serial.println(F(" us"));
+    }
+    
+    uint32_t elapsed() const {
+        return micros() - startTime;
+    }
+};
+
+// Usage
+void someFunction() {
+    PerformanceTimer timer("someFunction");
+    // ... function body ...
+    // Timer automatically prints on exit
+}
+
+// Manual timing macros
+#define TIMING_START() uint32_t _timing_start = micros()
+#define TIMING_END(name) \
+    do { \
+        uint32_t _elapsed = micros() - _timing_start; \
+        Serial.print(F("Timing " name ": ")); \
+        Serial.print(_elapsed); \
+        Serial.println(F(" us")); \
+    } while(0)
+
+// Cycle counting (platform specific)
+#ifdef ESP32
+    #include "esp32/rom/ets_sys.h"
+    #define GET_CYCLE_COUNT() esp_cpu_get_ccount()
+#elif defined(__arm__)
+    #define GET_CYCLE_COUNT() SysTick->VAL
+#else
+    #define GET_CYCLE_COUNT() 0
+#endif
+```
+
+### Performance Profiling Framework
+
+```cpp
+// Simple profiler for embedded systems
+class Profiler {
+private:
+    struct ProfileData {
+        const char* name;
+        uint32_t callCount;
+        uint32_t totalTime;
+        uint32_t minTime;
+        uint32_t maxTime;
+    };
+    
+    static constexpr size_t MAX_PROFILES = 20;
+    static ProfileData profiles[MAX_PROFILES];
+    static size_t profileCount;
+    
+public:
+    class ScopedTimer {
+    private:
+        ProfileData* data;
+        uint32_t startTime;
+        
+    public:
+        ScopedTimer(const char* name) {
+            data = findOrCreate(name);
+            startTime = micros();
+        }
+        
+        ~ScopedTimer() {
+            uint32_t elapsed = micros() - startTime;
+            data->callCount++;
+            data->totalTime += elapsed;
+            
+            if (elapsed < data->minTime) data->minTime = elapsed;
+            if (elapsed > data->maxTime) data->maxTime = elapsed;
+        }
+        
+    private:
+        static ProfileData* findOrCreate(const char* name) {
+            // Find existing
+            for (size_t i = 0; i < profileCount; i++) {
+                if (strcmp(profiles[i].name, name) == 0) {
+                    return &profiles[i];
+                }
+            }
+            
+            // Create new
+            if (profileCount < MAX_PROFILES) {
+                profiles[profileCount] = {
+                    name, 0, 0, UINT32_MAX, 0
+                };
+                return &profiles[profileCount++];
+            }
+            
+            return &profiles[0];  // Fallback
+        }
+    };
+    
+    static void report() {
+        Serial.println(F("\n=== Performance Profile ==="));
+        Serial.println(F("Function              Calls    Total(us)  Avg(us)  Min(us)  Max(us)"));
+        Serial.println(F("--------              -----    ---------  -------  -------  -------"));
+        
+        for (size_t i = 0; i < profileCount; i++) {
+            const auto& p = profiles[i];
+            if (p.callCount == 0) continue;
+            
+            uint32_t avg = p.totalTime / p.callCount;
+            
+            // Format output
+            char line[80];
+            snprintf(line, sizeof(line), "%-20s %5lu    %9lu  %7lu  %7lu  %7lu",
+                     p.name, p.callCount, p.totalTime, avg, p.minTime, p.maxTime);
+            Serial.println(line);
+        }
+    }
+    
+    static void reset() {
+        for (size_t i = 0; i < profileCount; i++) {
+            profiles[i].callCount = 0;
+            profiles[i].totalTime = 0;
+            profiles[i].minTime = UINT32_MAX;
+            profiles[i].maxTime = 0;
+        }
+    }
+};
+
+// Static member definition
+Profiler::ProfileData Profiler::profiles[Profiler::MAX_PROFILES];
+size_t Profiler::profileCount = 0;
+
+// Usage macro
+#ifdef ENABLE_PROFILING
+    #define PROFILE(name) Profiler::ScopedTimer _timer(name)
+#else
+    #define PROFILE(name)
+#endif
+```
+
+## Code Optimization Techniques
+
+### Compiler Optimization Flags
+
+```cpp
+// Function-specific optimization
+__attribute__((optimize("O3")))
+void criticalFunction() {
+    // This function will be optimized for speed
+}
+
+__attribute__((optimize("Os")))
+void largeFunctionRarelyUsed() {
+    // This function will be optimized for size
+}
+
+// Hot path optimization
+__attribute__((hot))
+void frequentlyCalledFunction() {
+    // Compiler will optimize this aggressively
+}
+
+// Cold path optimization
+__attribute__((cold))
+void errorHandler() {
+    // Compiler will optimize for size, not speed
+}
+
+// Force inlining
+__attribute__((always_inline))
+inline void mustInline() {
+    // This will always be inlined
+}
+
+// Prevent inlining
+__attribute__((noinline))
+void doNotInline() {
+    // This will never be inlined
+}
+```
+
+### Loop Optimization
+
+```cpp
+// Loop unrolling for known sizes
+template<size_t N>
+void clearBuffer(uint8_t* buffer) {
+    // Manual unrolling for small sizes
+    if constexpr (N == 4) {
+        buffer[0] = 0;
+        buffer[1] = 0;
+        buffer[2] = 0;
+        buffer[3] = 0;
+    } else if constexpr (N == 8) {
+        uint32_t* p = reinterpret_cast<uint32_t*>(buffer);
+        p[0] = 0;
+        p[1] = 0;
+    } else if constexpr (N % 4 == 0) {
+        // Unroll by 4
+        for (size_t i = 0; i < N; i += 4) {
+            buffer[i] = 0;
+            buffer[i + 1] = 0;
+            buffer[i + 2] = 0;
+            buffer[i + 3] = 0;
+        }
+    } else {
+        // Fallback
+        memset(buffer, 0, N);
+    }
+}
+
+// Loop optimization techniques
+class LoopOptimizations {
+public:
+    // Strength reduction - replace expensive operations
+    static void multiplyByPowerOf2(uint16_t* data, size_t count, uint8_t shift) {
+        // Instead of: data[i] *= (1 << shift);
+        for (size_t i = 0; i < count; i++) {
+            data[i] <<= shift;  // Bit shift instead of multiply
+        }
+    }
+    
+    // Loop fusion - combine multiple loops
+    static void processArraysFused(int* a, int* b, int* result, size_t count) {
+        // Instead of two separate loops
+        for (size_t i = 0; i < count; i++) {
+            int temp = a[i] + b[i];      // First operation
+            result[i] = temp * temp;      // Second operation
+            // Both in one loop - better cache usage
+        }
+    }
+    
+    // Loop invariant code motion
+    static void processWithInvariant(uint8_t* data, size_t count, uint8_t threshold) {
+        // Move invariant calculations outside loop
+        const uint16_t scaledThreshold = threshold * 256;
+        const uint8_t halfThreshold = threshold >> 1;
+        
+        for (size_t i = 0; i < count; i++) {
+            // Use pre-calculated values
+            if (data[i] > halfThreshold) {
+                data[i] = scaledThreshold / data[i];
+            }
+        }
+    }
+};
+```
+
+### Integer Optimization
+
+```cpp
+// Fast integer operations
+class FastMath {
+public:
+    // Division by constant power of 2
+    static constexpr uint32_t divideBy8(uint32_t n) {
+        return n >> 3;  // Instead of n / 8
+    }
+    
+    // Modulo by constant power of 2
+    static constexpr uint32_t modulo32(uint32_t n) {
+        return n & 31;  // Instead of n % 32
+    }
+    
+    // Fast multiply by constants
+    static constexpr uint32_t multiplyBy10(uint32_t n) {
+        return (n << 3) + (n << 1);  // n * 8 + n * 2
+    }
+    
+    // Avoid division for averaging
+    static uint16_t average4(uint16_t a, uint16_t b, uint16_t c, uint16_t d) {
+        // Avoid overflow and division
+        return (a >> 2) + (b >> 2) + (c >> 2) + (d >> 2) + 
+               ((a & 3) + (b & 3) + (c & 3) + (d & 3) + 2) >> 2;
+    }
+    
+    // Fast absolute value
+    static int fastAbs(int n) {
+        int mask = n >> 31;  // Sign extension
+        return (n + mask) ^ mask;
+    }
+    
+    // Count leading zeros
+    static uint8_t countLeadingZeros(uint32_t n) {
+        #ifdef __GNUC__
+        return n ? __builtin_clz(n) : 32;
+        #else
+        // Fallback implementation
+        uint8_t count = 0;
+        while (n > 0) {
+            n >>= 1;
+            count++;
+        }
+        return 32 - count;
+        #endif
+    }
+    
+    // Fast bit counting
+    static uint8_t popCount(uint32_t n) {
+        #ifdef __GNUC__
+        return __builtin_popcount(n);
+        #else
+        // Brian Kernighan's algorithm
+        uint8_t count = 0;
+        while (n) {
+            n &= n - 1;
+            count++;
+        }
+        return count;
+        #endif
+    }
+};
+```
+
+### Lookup Tables
+
+```cpp
+// Precomputed lookup tables
+namespace LookupTables {
+    // CRC lookup table
+    constexpr uint8_t crc8_table[256] PROGMEM = {
+        0x00, 0x07, 0x0E, 0x09, 0x1C, 0x1B, 0x12, 0x15,
+        // ... full table
+    };
+    
+    // Sine table for fast trigonometry (0-90 degrees, 0.1 degree steps)
+    constexpr int16_t sine_table[901] PROGMEM = {
+        0, 17, 35, 52, 70, 87, 105, 122, // sin(0-0.7 degrees) * 10000
+        // ... full table
+    };
+    
+    // Fast sine approximation using lookup
+    int16_t fastSine(uint16_t degrees) {
+        degrees = degrees % 360;
+        
+        if (degrees <= 90) {
+            return pgm_read_word(&sine_table[degrees * 10]);
+        } else if (degrees <= 180) {
+            return pgm_read_word(&sine_table[(180 - degrees) * 10]);
+        } else if (degrees <= 270) {
+            return -pgm_read_word(&sine_table[(degrees - 180) * 10]);
+        } else {
+            return -pgm_read_word(&sine_table[(360 - degrees) * 10]);
+        }
+    }
+    
+    // Bit reverse lookup for FFT
+    constexpr uint8_t bitReverse8[256] PROGMEM = {
+        0x00, 0x80, 0x40, 0xC0, 0x20, 0xA0, 0x60, 0xE0,
+        // ... full table
+    };
+}
+
+// Temperature sensor linearization table
+class TemperatureLUT {
+private:
+    struct TableEntry {
+        uint16_t adc;
+        int16_t temp;  // Temperature * 10
+    };
+    
+    static constexpr TableEntry table[] PROGMEM = {
+        {0, -400},     // -40.0°C
+        {100, -200},   // -20.0°C
+        {512, 250},    // 25.0°C
+        {900, 850},    // 85.0°C
+        {1023, 1250}   // 125.0°C
+    };
+    static constexpr size_t TABLE_SIZE = sizeof(table) / sizeof(table[0]);
+    
+public:
+    static int16_t adcToTemperature(uint16_t adc) {
+        // Binary search in PROGMEM table
+        size_t low = 0;
+        size_t high = TABLE_SIZE - 1;
+        
+        while (low < high - 1) {
+            size_t mid = (low + high) / 2;
+            uint16_t midAdc = pgm_read_word(&table[mid].adc);
+            
+            if (adc < midAdc) {
+                high = mid;
+            } else {
+                low = mid;
+            }
+        }
+        
+        // Linear interpolation
+        uint16_t adc1 = pgm_read_word(&table[low].adc);
+        uint16_t adc2 = pgm_read_word(&table[high].adc);
+        int16_t temp1 = pgm_read_word(&table[low].temp);
+        int16_t temp2 = pgm_read_word(&table[high].temp);
+        
+        return temp1 + ((int32_t)(temp2 - temp1) * (adc - adc1)) / (adc2 - adc1);
+    }
+};
+```
+
+### Memory Access Optimization
+
+```cpp
+// Cache-friendly data structures
+struct alignas(32) CacheAlignedData {
+    uint32_t frequentlyUsed[8];  // 32 bytes - typical cache line
+};
+
+// Structure packing for memory bandwidth
+struct PackedSensorData {
+    uint16_t values[16];  // Read 32 bytes at once
+} __attribute__((packed));
+
+// Memory access patterns
+class MemoryOptimized {
+public:
+    // Row-major access pattern
+    static void processMatrix(uint8_t matrix[64][64]) {
+        // Access in memory order for cache efficiency
+        for (size_t row = 0; row < 64; row++) {
+            for (size_t col = 0; col < 64; col++) {
+                matrix[row][col] = processPixel(matrix[row][col]);
+            }
+        }
+    }
+    
+    // Prefetch hint (platform specific)
+    static void processWithPrefetch(uint32_t* data, size_t count) {
+        for (size_t i = 0; i < count; i += 4) {
+            #ifdef __ARM_ARCH_7A__
+            __builtin_prefetch(&data[i + 16], 0, 1);  // Prefetch ahead
+            #endif
+            
+            // Process current data
+            data[i] = complexCalculation(data[i]);
+            data[i + 1] = complexCalculation(data[i + 1]);
+            data[i + 2] = complexCalculation(data[i + 2]);
+            data[i + 3] = complexCalculation(data[i + 3]);
+        }
+    }
+    
+private:
+    static uint8_t processPixel(uint8_t pixel) {
+        return pixel;  // Placeholder
+    }
+    
+    static uint32_t complexCalculation(uint32_t value) {
+        return value;  // Placeholder
+    }
+};
+```
+
+### Float Optimization
+
+```cpp
+// Avoid floating point on 8-bit MCUs
+class FixedPoint {
+public:
+    // 16.16 fixed point representation
+    using Fixed32 = int32_t;
+    static constexpr int FRACTION_BITS = 16;
+    static constexpr Fixed32 SCALE = 1 << FRACTION_BITS;
+    
+    static Fixed32 fromFloat(float f) {
+        return static_cast<Fixed32>(f * SCALE + 0.5f);
+    }
+    
+    static float toFloat(Fixed32 f) {
+        return static_cast<float>(f) / SCALE;
+    }
+    
+    static Fixed32 multiply(Fixed32 a, Fixed32 b) {
+        return static_cast<int64_t>(a) * b >> FRACTION_BITS;
+    }
+    
+    static Fixed32 divide(Fixed32 a, Fixed32 b) {
+        return (static_cast<int64_t>(a) << FRACTION_BITS) / b;
+    }
+    
+    // Fast reciprocal approximation
+    static Fixed32 reciprocal(Fixed32 x) {
+        // Newton-Raphson approximation
+        Fixed32 guess = SCALE * SCALE / x;  // Initial guess
+        
+        // Two iterations usually sufficient
+        guess = multiply(guess, fromFloat(2.0f) - multiply(x, guess));
+        guess = multiply(guess, fromFloat(2.0f) - multiply(x, guess));
+        
+        return guess;
+    }
+};
+
+// Integer-only PID controller
+class IntegerPID {
+private:
+    int32_t kp, ki, kd;  // Gains scaled by 256
+    int32_t integral;
+    int32_t lastError;
+    int32_t integralMax;
+    
+public:
+    IntegerPID(int32_t p, int32_t i, int32_t d, int32_t iMax)
+        : kp(p), ki(i), kd(d), integral(0), lastError(0), integralMax(iMax) {}
+    
+    int32_t calculate(int32_t setpoint, int32_t measured) {
+        int32_t error = setpoint - measured;
+        
+        // Integral with anti-windup
+        integral += error;
+        if (integral > integralMax) integral = integralMax;
+        if (integral < -integralMax) integral = -integralMax;
+        
+        // Derivative
+        int32_t derivative = error - lastError;
+        lastError = error;
+        
+        // PID calculation (gains pre-scaled by 256)
+        int32_t output = (kp * error + ki * integral + kd * derivative) >> 8;
+        
+        return output;
+    }
+    
+    void reset() {
+        integral = 0;
+        lastError = 0;
+    }
+};
+```
+
+## Interrupt Optimization
+
+```cpp
+// Minimal ISR with deferred processing
+volatile bool dataReady = false;
+volatile uint8_t isrData[64];
+volatile size_t isrDataCount = 0;
+
+// Fast ISR - just copy data and set flag
+ISR(TIMER1_COMPA_vect) {
+    if (isrDataCount < sizeof(isrData)) {
+        isrData[isrDataCount++] = PIND;  // Direct port read
+        dataReady = true;
+    }
+}
+
+// Main loop processes data
+void loop() {
+    if (dataReady) {
+        noInterrupts();
+        uint8_t localData[64];
+        size_t count = isrDataCount;
+        memcpy(localData, (void*)isrData, count);
+        isrDataCount = 0;
+        dataReady = false;
+        interrupts();
+        
+        // Process data outside ISR
+        processData(localData, count);
+    }
+}
+
+// Table-driven state machine in ISR
+class FastStateMachine {
+private:
+    enum State : uint8_t {
+        IDLE, START, DATA, STOP
+    };
+    
+    struct Transition {
+        uint8_t nextState;
+        void (*action)(uint8_t);
+    };
+    
+    static Transition stateTable[4][2];  // [state][input]
+    static volatile State currentState;
+    
+public:
+    static void IRAM_ATTR handleInterrupt(uint8_t input) {
+        input = input ? 1 : 0;  // Normalize to 0 or 1
+        const Transition& t = stateTable[currentState][input];
+        
+        if (t.action) {
+            t.action(input);
+        }
+        
+        currentState = static_cast<State>(t.nextState);
+    }
+};
+```
+
+## DMA Optimization
+
+```cpp
+#ifdef ESP32
+// DMA transfer for ESP32
+#include <driver/spi_master.h>
+
+class DMATransfer {
+private:
+    spi_device_handle_t spi;
+    spi_transaction_t transaction;
+    
+public:
+    void setupDMA() {
+        spi_bus_config_t buscfg = {
+            .mosi_io_num = 23,
+            .miso_io_num = 19,
+            .sclk_io_num = 18,
+            .quadwp_io_num = -1,
+            .quadhd_io_num = -1,
+            .max_transfer_sz = 4096,
+            .flags = SPICOMMON_BUSFLAG_MASTER | SPICOMMON_BUSFLAG_IOMUX_PINS,
+        };
+        
+        spi_bus_initialize(HSPI_HOST, &buscfg, 1);  // DMA channel 1
+    }
+    
+    void transferDMA(const uint8_t* txData, uint8_t* rxData, size_t length) {
+        memset(&transaction, 0, sizeof(transaction));
+        transaction.length = length * 8;  // Length in bits
+        transaction.tx_buffer = txData;
+        transaction.rx_buffer = rxData;
+        
+        // Non-blocking transfer
+        spi_device_queue_trans(spi, &transaction, portMAX_DELAY);
+        
+        // Do other work while DMA runs...
+        
+        // Wait for completion
+        spi_transaction_t* rtrans;
+        spi_device_get_trans_result(spi, &rtrans, portMAX_DELAY);
+    }
+};
+#endif
+
+#ifdef STM32
+// DMA for STM32
+class STM32_DMA {
+    // Platform-specific DMA implementation
+};
+#endif
+```
+
+## Power-Aware Performance
+
+```cpp
+// Dynamic frequency scaling
+class PowerOptimizedPerformance {
+public:
+    enum PerformanceMode {
+        POWER_SAVE,    // Lowest frequency
+        BALANCED,      // Medium frequency
+        PERFORMANCE    // Maximum frequency
+    };
+    
+    static void setPerformanceMode(PerformanceMode mode) {
+        #ifdef ESP32
+        switch (mode) {
+            case POWER_SAVE:
+                setCpuFrequencyMhz(80);
+                break;
+            case BALANCED:
+                setCpuFrequencyMhz(160);
+                break;
+            case PERFORMANCE:
+                setCpuFrequencyMhz(240);
+                break;
+        }
+        #endif
+    }
+    
+    // Adaptive performance based on workload
+    static void adaptivePerformance(uint32_t taskDuration) {
+        static uint32_t avgDuration = 0;
+        
+        // Moving average
+        avgDuration = (avgDuration * 7 + taskDuration) >> 3;
+        
+        if (avgDuration > 10000) {  // > 10ms average
+            setPerformanceMode(PERFORMANCE);
+        } else if (avgDuration > 1000) {  // > 1ms average
+            setPerformanceMode(BALANCED);
+        } else {
+            setPerformanceMode(POWER_SAVE);
+        }
+    }
+};
+```
+
+## Code Size Optimization
+
+```cpp
+// Shared string constants
+namespace SharedStrings {
+    const char OK[] PROGMEM = "OK";
+    const char ERROR[] PROGMEM = "ERROR";
+    const char READY[] PROGMEM = "Ready";
+    
+    // Use single format string
+    const char VALUE_FORMAT[] PROGMEM = "%s: %d\n";
+}
+
+// Template to reduce code duplication
+template<typename T>
+class GenericSensor {
+protected:
+    T lastValue;
+    uint32_t lastRead;
+    const uint32_t minInterval;
+    
+public:
+    GenericSensor(uint32_t interval) : minInterval(interval), lastRead(0) {}
+    
+    bool shouldRead() {
+        return (millis() - lastRead) >= minInterval;
+    }
+    
+    T getValue() {
+        if (shouldRead()) {
+            lastValue = readSensor();
+            lastRead = millis();
+        }
+        return lastValue;
+    }
+    
+protected:
+    virtual T readSensor() = 0;
+};
+
+// Macro to generate similar functions
+#define GENERATE_SETTER(type, name) \
+    void set##name(type value) { \
+        name##_ = value; \
+        markDirty(); \
+    }
+```
+
+## Best Practices Summary
+
+1. **Measure First**: Profile before optimizing
+2. **Compiler Flags**: Use appropriate optimization levels
+3. **Integer Math**: Prefer integer over floating-point
+4. **Lookup Tables**: Precompute expensive calculations
+5. **Loop Optimization**: Unroll, fuse, and optimize loops
+6. **Memory Access**: Optimize for cache and alignment
+7. **Minimal ISRs**: Keep interrupt handlers short
+8. **DMA Usage**: Use DMA for bulk transfers
+9. **Power Scaling**: Adjust performance to workload
+10. **Code Size**: Balance speed vs size optimization

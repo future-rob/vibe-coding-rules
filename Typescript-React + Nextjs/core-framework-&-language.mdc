@@ -1,0 +1,56 @@
+---
+description: Core framework, language, and runtime specifications for the codebase
+globs:
+  - "**/*.ts"
+  - "**/*.tsx"
+  - "**/pages/**"
+  - "**/next.config.*"
+alwaysApply: true
+---
+
+# Core Framework & Language
+
+## Overview
+
+This document defines the foundational technology stack and runtime environment for the project. All code must align with these specifications.
+
+## Framework
+
+- **Framework:** [Next.js](https://nextjs.org/) (using Pages Router)
+  - Provides server-side rendering, static site generation, API routes, and a robust React development environment
+  - Uses the Pages Router architecture (`src/pages/` directory structure)
+  - Supports both static and dynamic rendering strategies
+
+## Language
+
+- **Language:** [TypeScript](https://www.typescriptlang.org/)
+  - Used throughout the codebase for type safety and improved developer experience
+  - Strict type checking enabled
+  - All files must use TypeScript (`.ts` or `.tsx` extensions)
+
+## Runtime
+
+- **Runtime:** [Node.js](https://nodejs.org/)
+  - Version specified in `.nvmrc` or `.tool-versions` file
+  - Ensure Node.js version matches project requirements before development
+
+## Version Management
+
+Always check and use the correct Node.js version:
+
+```bash
+# Using nvm
+nvm use
+
+# Using asdf
+asdf install
+```
+
+## TypeScript Configuration
+
+The project uses strict TypeScript settings. Key requirements:
+
+- Strict mode enabled
+- No implicit `any` types
+- All files must have proper type annotations
+- Use TypeScript interfaces and types instead of `any` or `unknown` where possible

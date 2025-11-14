@@ -1,0 +1,894 @@
+---
+description: Error handling patterns and recovery strategies for embedded systems
+globs:
+  - "**/*.cpp"
+  - "**/*.c"
+  - "**/*.h"
+  - "**/src/**"
+alwaysApply: true
+---
+
+# Error Handling Patterns
+
+## Overview
+
+Error handling in embedded systems differs significantly from desktop applications. Without exceptions, limited memory, and real-time constraints, embedded systems require robust error handling strategies that ensure system stability and predictable behavior.
+
+## Error Representation
+
+### Error Codes
+
+```cpp
+// Comprehensive error code system
+enum class ErrorCode : int8_t {
+    // Success
+    OK = 0,
+    
+    // Generic errors (-1 to -19)
+    ERROR = -1,
+    INVALID_ARGUMENT = -2,
+    OUT_OF_MEMORY = -3,
+    BUFFER_FULL = -4,
+    BUFFER_EMPTY = -5,
+    TIMEOUT = -6,
+    NOT_INITIALIZED = -7,
+    ALREADY_INITIALIZED = -8,
+    NOT_SUPPORTED = -9,
+    PERMISSION_DENIED = -10,
+    
+    // Hardware errors (-20 to -39)
+    HARDWARE_ERROR = -20,
+    I2C_ERROR = -21,
+    SPI_ERROR = -22,
+    UART_ERROR = -23,
+    GPIO_ERROR = -24,
+    ADC_ERROR = -25,
+    PWM_ERROR = -26,
+    
+    // Communication errors (-40 to -59)
+    COMM_ERROR = -40,
+    CHECKSUM_ERROR = -41,
+    PROTOCOL_ERROR = -42,
+    PACKET_TOO_LARGE = -43,
+    NO_RESPONSE = -44,
+    
+    // Sensor errors (-60 to -79)
+    SENSOR_ERROR = -60,
+    SENSOR_NOT_FOUND = -61,
+    SENSOR_CALIBRATION = -62,
+    SENSOR_RANGE = -63,
+    
+    // File system errors (-80 to -99)
+    FS_ERROR = -80,
+    FILE_NOT_FOUND = -81,
+    FILE_EXISTS = -82,
+    FS_FULL = -83,
+    
+    // Application specific (-100 to -127)
+    APP_ERROR = -100
+};
+
+// Convert error code to string (stored in PROGMEM)
+const char* getErrorString(ErrorCode error) {
+    switch (error) {
+        case ErrorCode::OK: return F("OK");
+        case ErrorCode::INVALID_ARGUMENT: return F("Invalid argument");
+        case ErrorCode::OUT_OF_MEMORY: return F("Out of memory");
+        case ErrorCode::TIMEOUT: return F("Timeout");
+        case ErrorCode::HARDWARE_ERROR: return F("Hardware error");
+        case ErrorCode::I2C_ERROR: return F("I2C error");
+        case ErrorCode::CHECKSUM_ERROR: return F("Checksum error");
+        // ... etc
+        default: return F("Unknown error");
+    }
+}
+```
+
+### Result Type Pattern
+
+```cpp
+// Result type for error handling without exceptions
+template<typename T, typename E = ErrorCode>
+class Result {
+private:
+    union {
+        T value;
+        E error;
+    };
+    bool hasValue;
+    
+public:
+    // Success constructor
+    Result(const T& val) : value(val), hasValue(true) {}
+    Result(T&& val) : value(std::move(val)), hasValue(true) {}
+    
+    // Error constructor
+    Result(E err) : error(err), hasValue(false) {}
+    
+    // Check if successful
+    bool isOk() const { return hasValue; }
+    bool isError() const { return !hasValue; }
+    explicit operator bool() const { return hasValue; }
+    
+    // Get value (unsafe - check isOk() first)
+    T& getValue() { return value; }
+    const T& getValue() const { return value; }
+    
+    // Get error (unsafe - check isError() first)
+    E getError() const { return error; }
+    
+    // Safe access with default
+    T getValueOr(const T& defaultValue) const {
+        return hasValue ? value : defaultValue;
+    }
+    
+    // Monadic operations
+    template<typename F>
+    auto map(F func) -> Result<decltype(func(value)), E> {
+        if (hasValue) {
+            return Result<decltype(func(value)), E>(func(value));
+        }
+        return Result<decltype(func(value)), E>(error);
+    }
+    
+    template<typename F>
+    auto andThen(F func) -> decltype(func(value)) {
+        if (hasValue) {
+            return func(value);
+        }
+        return decltype(func(value))(error);
+    }
+    
+    // Destructor
+    ~Result() {
+        if (hasValue) {
+            value.~T();
+        }
+    }
+};
+
+// Specialization for void
+template<typename E>
+class Result<void, E> {
+private:
+    E error;
+    bool success;
+    
+public:
+    Result() : success(true) {}
+    Result(E err) : error(err), success(false) {}
+    
+    bool isOk() const { return success; }
+    bool isError() const { return !success; }
+    E getError() const { return error; }
+};
+
+// Helper function for creating results
+template<typename T>
+Result<T> Ok(T&& value) {
+    return Result<T>(std::forward<T>(value));
+}
+
+template<typename T, typename E>
+Result<T, E> Err(E error) {
+    return Result<T, E>(error);
+}
+
+// Usage example
+Result<int> readSensor() {
+    int value = analogRead(A0);
+    if (value < 0 || value > 1023) {
+        return Err<int>(ErrorCode::SENSOR_RANGE);
+    }
+    return Ok(value);
+}
+
+void processSensorData() {
+    auto result = readSensor();
+    if (result.isOk()) {
+        int value = result.getValue();
+        // Process value
+    } else {
+        handleError(result.getError());
+    }
+}
+```
+
+## Error Propagation
+
+### Early Return Pattern
+
+```cpp
+// Macro for early return on error
+#define RETURN_IF_ERROR(expr) \
+    do { \
+        auto _result = (expr); \
+        if (_result != ErrorCode::OK) { \
+            return _result; \
+        } \
+    } while(0)
+
+#define RETURN_ON_ERROR(expr) \
+    do { \
+        auto _result = (expr); \
+        if (!_result.isOk()) { \
+            return _result; \
+        } \
+    } while(0)
+
+// Usage
+ErrorCode initializeSystem() {
+    RETURN_IF_ERROR(initHardware());
+    RETURN_IF_ERROR(initSensors());
+    RETURN_IF_ERROR(initCommunication());
+    RETURN_IF_ERROR(loadConfiguration());
+    
+    return ErrorCode::OK;
+}
+
+Result<float> calculateAverage(uint8_t pin, uint8_t samples) {
+    if (samples == 0) {
+        return Err<float>(ErrorCode::INVALID_ARGUMENT);
+    }
+    
+    uint32_t sum = 0;
+    for (uint8_t i = 0; i < samples; i++) {
+        auto reading = readAnalogSafe(pin);
+        RETURN_ON_ERROR(reading);
+        sum += reading.getValue();
+    }
+    
+    return Ok(static_cast<float>(sum) / samples);
+}
+```
+
+### Error Context
+
+```cpp
+// Error with context information
+struct ErrorContext {
+    ErrorCode code;
+    const char* file;
+    uint16_t line;
+    const char* function;
+    uint32_t timestamp;
+    
+    void print() const {
+        Serial.print(F("Error "));
+        Serial.print(static_cast<int>(code));
+        Serial.print(F(" at "));
+        Serial.print(file);
+        Serial.print(F(":"));
+        Serial.print(line);
+        Serial.print(F(" in "));
+        Serial.print(function);
+        Serial.print(F(" @ "));
+        Serial.println(timestamp);
+    }
+};
+
+// Macro to capture context
+#define ERROR_CONTEXT(code) \
+    ErrorContext{code, __FILE__, __LINE__, __func__, millis()}
+
+// Enhanced result type with context
+template<typename T>
+class ResultWithContext {
+private:
+    union {
+        T value;
+        ErrorContext error;
+    };
+    bool hasValue;
+    
+public:
+    ResultWithContext(const T& val) : value(val), hasValue(true) {}
+    ResultWithContext(const ErrorContext& err) : error(err), hasValue(false) {}
+    
+    bool isOk() const { return hasValue; }
+    const T& getValue() const { return value; }
+    const ErrorContext& getError() const { return error; }
+};
+```
+
+## Error Recovery Strategies
+
+### Retry Mechanism
+
+```cpp
+// Configurable retry policy
+struct RetryPolicy {
+    uint8_t maxAttempts;
+    uint32_t initialDelay;
+    float backoffMultiplier;
+    uint32_t maxDelay;
+    
+    static constexpr RetryPolicy exponentialBackoff() {
+        return {3, 100, 2.0f, 5000};
+    }
+    
+    static constexpr RetryPolicy fixed() {
+        return {3, 1000, 1.0f, 1000};
+    }
+    
+    static constexpr RetryPolicy noRetry() {
+        return {1, 0, 1.0f, 0};
+    }
+};
+
+// Retry wrapper
+template<typename F>
+auto retryOperation(F operation, const RetryPolicy& policy) 
+    -> decltype(operation()) {
+    
+    uint32_t delay = policy.initialDelay;
+    
+    for (uint8_t attempt = 0; attempt < policy.maxAttempts; attempt++) {
+        auto result = operation();
+        
+        if (result.isOk()) {
+            return result;
+        }
+        
+        // Last attempt, don't delay
+        if (attempt == policy.maxAttempts - 1) {
+            return result;
+        }
+        
+        // Apply backoff
+        delay = min(static_cast<uint32_t>(delay * policy.backoffMultiplier), 
+                    policy.maxDelay);
+        delay(delay);
+    }
+    
+    return operation();  // Final attempt
+}
+
+// Usage
+Result<uint8_t> readI2CRegister(uint8_t address, uint8_t reg) {
+    return retryOperation([=]() {
+        Wire.beginTransmission(address);
+        Wire.write(reg);
+        if (Wire.endTransmission() != 0) {
+            return Err<uint8_t>(ErrorCode::I2C_ERROR);
+        }
+        
+        Wire.requestFrom(address, 1);
+        if (Wire.available()) {
+            return Ok(static_cast<uint8_t>(Wire.read()));
+        }
+        
+        return Err<uint8_t>(ErrorCode::NO_RESPONSE);
+    }, RetryPolicy::exponentialBackoff());
+}
+```
+
+### Circuit Breaker Pattern
+
+```cpp
+// Circuit breaker for protecting against repeated failures
+template<typename T>
+class CircuitBreaker {
+private:
+    enum State { CLOSED, OPEN, HALF_OPEN };
+    
+    State state = CLOSED;
+    uint8_t failureCount = 0;
+    uint8_t successCount = 0;
+    uint32_t lastFailureTime = 0;
+    
+    const uint8_t failureThreshold;
+    const uint32_t timeout;
+    const uint8_t successThreshold;
+    
+public:
+    CircuitBreaker(uint8_t failures = 5, uint32_t timeoutMs = 30000, 
+                   uint8_t successes = 2)
+        : failureThreshold(failures), timeout(timeoutMs), 
+          successThreshold(successes) {}
+    
+    template<typename F>
+    Result<T> call(F operation) {
+        if (state == OPEN) {
+            if (millis() - lastFailureTime >= timeout) {
+                state = HALF_OPEN;
+                successCount = 0;
+            } else {
+                return Err<T>(ErrorCode::SERVICE_UNAVAILABLE);
+            }
+        }
+        
+        auto result = operation();
+        
+        if (result.isOk()) {
+            onSuccess();
+        } else {
+            onFailure();
+        }
+        
+        return result;
+    }
+    
+private:
+    void onSuccess() {
+        failureCount = 0;
+        
+        if (state == HALF_OPEN) {
+            successCount++;
+            if (successCount >= successThreshold) {
+                state = CLOSED;
+            }
+        }
+    }
+    
+    void onFailure() {
+        lastFailureTime = millis();
+        
+        if (state == HALF_OPEN) {
+            state = OPEN;
+            return;
+        }
+        
+        failureCount++;
+        if (failureCount >= failureThreshold) {
+            state = OPEN;
+        }
+    }
+    
+    const char* getStateName() const {
+        switch (state) {
+            case CLOSED: return "CLOSED";
+            case OPEN: return "OPEN";
+            case HALF_OPEN: return "HALF_OPEN";
+            default: return "UNKNOWN";
+        }
+    }
+};
+```
+
+### Fallback Strategies
+
+```cpp
+// Sensor with fallback
+class RedundantSensor {
+private:
+    struct SensorInterface {
+        virtual Result<float> read() = 0;
+        virtual const char* getName() = 0;
+    };
+    
+    SensorInterface* primary;
+    SensorInterface* secondary;
+    float lastGoodValue = 0;
+    uint32_t lastGoodTime = 0;
+    
+public:
+    RedundantSensor(SensorInterface* p, SensorInterface* s) 
+        : primary(p), secondary(s) {}
+    
+    Result<float> read() {
+        // Try primary sensor
+        auto result = primary->read();
+        if (result.isOk()) {
+            lastGoodValue = result.getValue();
+            lastGoodTime = millis();
+            return result;
+        }
+        
+        // Log primary failure
+        Serial.print(F("Primary sensor failed: "));
+        Serial.println(primary->getName());
+        
+        // Try secondary sensor
+        if (secondary) {
+            result = secondary->read();
+            if (result.isOk()) {
+                return result;
+            }
+        }
+        
+        // Both failed - use last known good value if recent
+        if (millis() - lastGoodTime < 5000) {
+            Serial.println(F("Using cached value"));
+            return Ok(lastGoodValue);
+        }
+        
+        // Complete failure
+        return Err<float>(ErrorCode::SENSOR_ERROR);
+    }
+};
+
+// Graceful degradation
+class SystemController {
+private:
+    enum Mode { NORMAL, DEGRADED, EMERGENCY, SHUTDOWN };
+    Mode currentMode = NORMAL;
+    
+public:
+    void updateMode(const SystemStatus& status) {
+        if (status.criticalErrors > 0) {
+            enterMode(SHUTDOWN);
+        } else if (status.errors > 5) {
+            enterMode(EMERGENCY);
+        } else if (status.errors > 0) {
+            enterMode(DEGRADED);
+        } else {
+            enterMode(NORMAL);
+        }
+    }
+    
+private:
+    void enterMode(Mode newMode) {
+        if (newMode == currentMode) return;
+        
+        Serial.print(F("Mode change: "));
+        Serial.print(getModeString(currentMode));
+        Serial.print(F(" -> "));
+        Serial.println(getModeString(newMode));
+        
+        currentMode = newMode;
+        
+        switch (currentMode) {
+            case NORMAL:
+                // Full functionality
+                enableAllFeatures();
+                break;
+                
+            case DEGRADED:
+                // Reduced functionality
+                disableNonEssentialFeatures();
+                reduceSampleRate();
+                break;
+                
+            case EMERGENCY:
+                // Minimum functionality
+                disableAllButCritical();
+                enableEmergencyBeacon();
+                break;
+                
+            case SHUTDOWN:
+                // Safe shutdown
+                saveState();
+                enterSafeMode();
+                break;
+        }
+    }
+    
+    const char* getModeString(Mode mode) {
+        switch (mode) {
+            case NORMAL: return F("NORMAL");
+            case DEGRADED: return F("DEGRADED");
+            case EMERGENCY: return F("EMERGENCY");
+            case SHUTDOWN: return F("SHUTDOWN");
+            default: return F("UNKNOWN");
+        }
+    }
+};
+```
+
+## Error Logging
+
+### Minimal Error Logger
+
+```cpp
+// Circular buffer for error logging
+template<size_t LOG_SIZE>
+class ErrorLogger {
+private:
+    struct LogEntry {
+        ErrorCode code;
+        uint32_t timestamp;
+        uint16_t location;  // Packed file:line
+        uint8_t data[4];    // Additional context
+    };
+    
+    LogEntry log[LOG_SIZE];
+    uint8_t writeIndex = 0;
+    bool wrapped = false;
+    
+public:
+    void logError(ErrorCode code, uint16_t location = 0, 
+                  const uint8_t* data = nullptr) {
+        log[writeIndex] = {
+            code,
+            millis(),
+            location,
+            {0, 0, 0, 0}
+        };
+        
+        if (data) {
+            memcpy(log[writeIndex].data, data, 4);
+        }
+        
+        if (++writeIndex >= LOG_SIZE) {
+            writeIndex = 0;
+            wrapped = true;
+        }
+    }
+    
+    void dump() {
+        Serial.println(F("\n=== Error Log ==="));
+        Serial.println(F("Time(ms) | Error | Location | Data"));
+        Serial.println(F("---------|-------|----------|-----"));
+        
+        uint8_t start = wrapped ? writeIndex : 0;
+        uint8_t count = wrapped ? LOG_SIZE : writeIndex;
+        
+        for (uint8_t i = 0; i < count; i++) {
+            uint8_t idx = (start + i) % LOG_SIZE;
+            const auto& entry = log[idx];
+            
+            Serial.print(entry.timestamp);
+            Serial.print(F(" | "));
+            Serial.print(static_cast<int>(entry.code));
+            Serial.print(F(" | "));
+            Serial.print(entry.location);
+            Serial.print(F(" | "));
+            
+            for (uint8_t j = 0; j < 4; j++) {
+                if (entry.data[j] < 0x10) Serial.print('0');
+                Serial.print(entry.data[j], HEX);
+                Serial.print(' ');
+            }
+            Serial.println();
+        }
+    }
+    
+    void clear() {
+        writeIndex = 0;
+        wrapped = false;
+    }
+    
+    // Store in EEPROM for post-mortem analysis
+    void saveToEEPROM(uint16_t address) {
+        #ifdef __AVR__
+        EEPROM.put(address, *this);
+        #endif
+    }
+    
+    void loadFromEEPROM(uint16_t address) {
+        #ifdef __AVR__
+        EEPROM.get(address, *this);
+        #endif
+    }
+};
+
+// Global error logger
+ErrorLogger<32> errorLog;
+
+// Convenience macro
+#define LOG_ERROR(code) errorLog.logError(code, (__LINE__ << 8) | (__COUNTER__ & 0xFF))
+```
+
+## Watchdog Integration
+
+```cpp
+// Error handler with watchdog
+class SafeErrorHandler {
+private:
+    static constexpr uint32_t ERROR_TIMEOUT = 10000;  // 10 seconds
+    static uint32_t lastErrorTime;
+    static uint8_t errorCount;
+    
+public:
+    static void handleError(ErrorCode error) {
+        errorCount++;
+        uint32_t now = millis();
+        
+        // Log error
+        errorLog.logError(error);
+        
+        // Check for error storm
+        if (now - lastErrorTime < 1000) {
+            if (errorCount > 10) {
+                // Too many errors too quickly
+                emergencyReset();
+            }
+        } else {
+            errorCount = 1;
+        }
+        
+        lastErrorTime = now;
+        
+        // Handle specific errors
+        switch (error) {
+            case ErrorCode::OUT_OF_MEMORY:
+                freeMemory();
+                break;
+                
+            case ErrorCode::HARDWARE_ERROR:
+                resetHardware();
+                break;
+                
+            case ErrorCode::WATCHDOG_TIMEOUT:
+                // System hung - will reset automatically
+                break;
+                
+            default:
+                // Generic error handling
+                if (isCriticalError(error)) {
+                    enterSafeMode();
+                }
+        }
+        
+        // Feed watchdog to prevent reset during recovery
+        #ifdef __AVR__
+        wdt_reset();
+        #endif
+    }
+    
+private:
+    static void emergencyReset() {
+        // Save critical state
+        saveErrorLog();
+        
+        // Trigger watchdog reset
+        #ifdef __AVR__
+        wdt_enable(WDTO_15MS);
+        while (true);  // Wait for reset
+        #elif defined(ESP32)
+        ESP.restart();
+        #endif
+    }
+    
+    static bool isCriticalError(ErrorCode error) {
+        return error <= ErrorCode::HARDWARE_ERROR && 
+               error >= ErrorCode::SENSOR_ERROR;
+    }
+    
+    static void freeMemory() {
+        // Attempt to free memory
+        // Clear non-critical buffers
+    }
+    
+    static void resetHardware() {
+        // Reinitialize hardware
+    }
+    
+    static void saveErrorLog() {
+        errorLog.saveToEEPROM(0);
+    }
+    
+    static void enterSafeMode() {
+        // Minimal operation mode
+        Serial.println(F("Entering safe mode"));
+        
+        // Disable all interrupts except critical ones
+        // Run minimal loop
+        while (true) {
+            wdt_reset();
+            
+            // Check for recovery command
+            if (Serial.available()) {
+                char cmd = Serial.read();
+                if (cmd == 'R') {
+                    emergencyReset();
+                }
+            }
+            
+            delay(100);
+        }
+    }
+};
+
+uint32_t SafeErrorHandler::lastErrorTime = 0;
+uint8_t SafeErrorHandler::errorCount = 0;
+```
+
+## Diagnostic LEDs
+
+```cpp
+// Visual error indication
+class ErrorLED {
+private:
+    static constexpr uint8_t LED_PIN = LED_BUILTIN;
+    static constexpr uint8_t ERROR_LED = 13;  // Red LED
+    
+    struct Pattern {
+        uint8_t onTime;
+        uint8_t offTime;
+        uint8_t count;
+        uint16_t pauseTime;
+    };
+    
+    static constexpr Pattern patterns[] = {
+        {100, 100, 1, 1000},  // OK: Single short blink
+        {250, 250, 2, 1000},  // Warning: 2 medium blinks
+        {500, 500, 3, 2000},  // Error: 3 long blinks
+        {100, 100, 5, 2000},  // Critical: 5 fast blinks
+    };
+    
+    static Pattern currentPattern;
+    static uint32_t patternStartTime;
+    static uint8_t blinkCount;
+    static bool ledState;
+    
+public:
+    enum Status { OK, WARNING, ERROR, CRITICAL };
+    
+    static void init() {
+        pinMode(LED_PIN, OUTPUT);
+        pinMode(ERROR_LED, OUTPUT);
+    }
+    
+    static void setStatus(Status status) {
+        currentPattern = patterns[status];
+        patternStartTime = millis();
+        blinkCount = 0;
+        ledState = false;
+    }
+    
+    static void update() {
+        uint32_t elapsed = millis() - patternStartTime;
+        
+        if (blinkCount < currentPattern.count) {
+            uint32_t blinkTime = elapsed % 
+                (currentPattern.onTime + currentPattern.offTime);
+                
+            bool newState = blinkTime < currentPattern.onTime;
+            
+            if (newState != ledState) {
+                ledState = newState;
+                digitalWrite(ERROR_LED, ledState);
+                
+                if (!newState) {
+                    blinkCount++;
+                }
+            }
+        } else {
+            // In pause period
+            digitalWrite(ERROR_LED, LOW);
+            
+            if (elapsed >= (currentPattern.count * 
+                (currentPattern.onTime + currentPattern.offTime) + 
+                currentPattern.pauseTime)) {
+                // Restart pattern
+                patternStartTime = millis();
+                blinkCount = 0;
+            }
+        }
+    }
+    
+    static void showErrorCode(ErrorCode code) {
+        // Blink error code in morse-like pattern
+        int8_t value = static_cast<int8_t>(code);
+        bool negative = value < 0;
+        if (negative) value = -value;
+        
+        // Show sign (long blink for negative)
+        digitalWrite(ERROR_LED, HIGH);
+        delay(negative ? 1000 : 200);
+        digitalWrite(ERROR_LED, LOW);
+        delay(500);
+        
+        // Show digits
+        while (value > 0) {
+            uint8_t digit = value % 10;
+            value /= 10;
+            
+            // Blink digit times
+            for (uint8_t i = 0; i < digit; i++) {
+                digitalWrite(ERROR_LED, HIGH);
+                delay(200);
+                digitalWrite(ERROR_LED, LOW);
+                delay(200);
+            }
+            
+            delay(800);  // Pause between digits
+        }
+    }
+};
+```
+
+## Best Practices Summary
+
+1. **Use Error Codes**: Define comprehensive error codes for all failure modes
+2. **Result Types**: Use Result<T> pattern instead of exceptions
+3. **Early Return**: Propagate errors early with RETURN_IF_ERROR
+4. **Error Context**: Capture file, line, and timestamp with errors
+5. **Retry Logic**: Implement configurable retry policies
+6. **Circuit Breaker**: Protect against cascading failures
+7. **Graceful Degradation**: Implement fallback strategies
+8. **Error Logging**: Maintain circular error log
+9. **Visual Indicators**: Use LEDs for error status
+10. **Watchdog Safety**: Integrate error handling with watchdog

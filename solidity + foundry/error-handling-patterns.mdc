@@ -1,0 +1,515 @@
+---
+description: Error handling patterns and best practices for Solidity smart contracts
+globs:
+  - "**/*.sol"
+alwaysApply: true
+---
+
+# Error Handling Patterns
+
+## Philosophy
+
+Error handling in Solidity is critical for security, gas efficiency, and user experience. Our error handling strategy focuses on:
+1. **Gas Efficiency** - Use custom errors instead of require strings
+2. **Clarity** - Clear error messages for debugging
+3. **Security** - Proper validation and error propagation
+4. **User Experience** - Meaningful error information
+
+## Error Types
+
+### 1. Custom Errors (0.8.4+)
+
+**Preferred method** - Gas efficient and type-safe:
+
+```solidity
+// ✅ GOOD - Custom errors
+contract Token {
+    error InsufficientBalance(uint256 required, uint256 available);
+    error Unauthorized(address account);
+    error InvalidAddress(address provided);
+    error TransferFailed(address from, address to, uint256 amount);
+    
+    mapping(address => uint256) public balances;
+    
+    function transfer(address to, uint256 amount) external {
+        if (to == address(0)) {
+            revert InvalidAddress(to);
+        }
+        
+        uint256 senderBalance = balances[msg.sender];
+        if (senderBalance < amount) {
+            revert InsufficientBalance(amount, senderBalance);
+        }
+        
+        balances[msg.sender] = senderBalance - amount;
+        balances[to] += amount;
+    }
+}
+```
+
+### 2. Require Statements
+
+Use for simple conditions with descriptive messages:
+
+```solidity
+// ✅ GOOD - Simple require with message
+function withdraw(uint256 amount) external {
+    require(amount > 0, "Amount must be positive");
+    require(balances[msg.sender] >= amount, "Insufficient balance");
+    
+    balances[msg.sender] -= amount;
+    // ...
+}
+
+// ❌ BAD - Generic error message
+function withdraw(uint256 amount) external {
+    require(balances[msg.sender] >= amount, "Error");
+    // ...
+}
+```
+
+### 3. Revert with Custom Errors
+
+Use revert with custom errors for complex conditions:
+
+```solidity
+// ✅ GOOD - Revert with custom error
+function complexOperation(uint256 amount, address recipient) external {
+    if (amount == 0) {
+        revert InvalidAmount(amount);
+    }
+    
+    if (recipient == address(0)) {
+        revert InvalidAddress(recipient);
+    }
+    
+    uint256 balance = balances[msg.sender];
+    if (balance < amount) {
+        revert InsufficientBalance(amount, balance);
+    }
+    
+    // ... operation ...
+}
+```
+
+## Error Organization
+
+### Centralized Error Definitions
+
+Define errors in a separate file or at contract level:
+
+```solidity
+// errors/CommonErrors.sol
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+/// @notice Common errors used across contracts
+library CommonErrors {
+    error InsufficientBalance(uint256 required, uint256 available);
+    error Unauthorized(address account);
+    error InvalidAddress(address provided);
+    error InvalidAmount(uint256 amount);
+    error TransferFailed(address from, address to, uint256 amount);
+    error ContractPaused();
+    error ContractNotInitialized();
+}
+
+// Usage
+import "./errors/CommonErrors.sol";
+
+contract Token {
+    using CommonErrors for *;
+    
+    function transfer(address to, uint256 amount) external {
+        if (balances[msg.sender] < amount) {
+            revert CommonErrors.InsufficientBalance(amount, balances[msg.sender]);
+        }
+        // ...
+    }
+}
+```
+
+### Contract-Specific Errors
+
+Define errors at contract level for contract-specific errors:
+
+```solidity
+contract Token {
+    // Contract-specific errors
+    error MaxSupplyExceeded(uint256 requested, uint256 max);
+    error MintingPaused();
+    error BurnAmountExceedsBalance(uint256 amount, uint256 balance);
+    
+    // Use common errors for generic cases
+    error InsufficientBalance(uint256 required, uint256 available);
+    
+    function mint(address to, uint256 amount) external {
+        if (paused) {
+            revert MintingPaused();
+        }
+        
+        uint256 newSupply = totalSupply() + amount;
+        if (newSupply > MAX_SUPPLY) {
+            revert MaxSupplyExceeded(newSupply, MAX_SUPPLY);
+        }
+        
+        // ... mint logic ...
+    }
+}
+```
+
+## Error Patterns
+
+### 1. Input Validation
+
+Always validate inputs:
+
+```solidity
+// ✅ GOOD - Comprehensive input validation
+function transfer(address to, uint256 amount) external {
+    // Validate recipient
+    if (to == address(0)) {
+        revert InvalidAddress(to);
+    }
+    
+    // Validate amount
+    if (amount == 0) {
+        revert InvalidAmount(amount);
+    }
+    
+    // Validate balance
+    uint256 balance = balances[msg.sender];
+    if (balance < amount) {
+        revert InsufficientBalance(amount, balance);
+    }
+    
+    // Execute transfer
+    balances[msg.sender] = balance - amount;
+    balances[to] += amount;
+}
+
+// ❌ BAD - Missing validation
+function transfer(address to, uint256 amount) external {
+    balances[msg.sender] -= amount;  // No validation!
+    balances[to] += amount;
+}
+```
+
+### 2. State Validation
+
+Validate contract state:
+
+```solidity
+contract Token {
+    bool public paused;
+    
+    error ContractPaused();
+    
+    modifier whenNotPaused() {
+        if (paused) {
+            revert ContractPaused();
+        }
+        _;
+    }
+    
+    function transfer(address to, uint256 amount) external whenNotPaused {
+        // ... transfer logic ...
+    }
+}
+```
+
+### 3. Access Control Validation
+
+Validate permissions:
+
+```solidity
+contract Token {
+    address public owner;
+    
+    error Unauthorized(address account);
+    
+    modifier onlyOwner() {
+        if (msg.sender != owner) {
+            revert Unauthorized(msg.sender);
+        }
+        _;
+    }
+    
+    function pause() external onlyOwner {
+        paused = true;
+    }
+}
+```
+
+### 4. External Call Validation
+
+Validate external call results:
+
+```solidity
+contract Token {
+    error TransferFailed(address from, address to, uint256 amount);
+    
+    function transferTokens(address token, address to, uint256 amount) external {
+        bool success = IERC20(token).transfer(to, amount);
+        if (!success) {
+            revert TransferFailed(address(this), to, amount);
+        }
+    }
+    
+    function sendEther(address payable recipient, uint256 amount) external {
+        (bool success, ) = recipient.call{value: amount}("");
+        if (!success) {
+            revert TransferFailed(address(this), recipient, amount);
+        }
+    }
+}
+```
+
+## Error Propagation
+
+### 1. Let Errors Bubble Up
+
+Don't catch errors unnecessarily:
+
+```solidity
+// ✅ GOOD - Let errors propagate
+function batchTransfer(address[] calldata recipients, uint256[] calldata amounts) external {
+    require(recipients.length == amounts.length, "Arrays length mismatch");
+    
+    for (uint256 i = 0; i < recipients.length; i++) {
+        transfer(recipients[i], amounts[i]);  // Errors will propagate
+    }
+}
+
+// ❌ BAD - Unnecessary try-catch
+function batchTransfer(address[] calldata recipients, uint256[] calldata amounts) external {
+    for (uint256 i = 0; i < recipients.length; i++) {
+        try this.transfer(recipients[i], amounts[i]) {} catch {
+            // Swallowing errors is dangerous
+        }
+    }
+}
+```
+
+### 2. Use Try-Catch When Appropriate
+
+Use try-catch for external calls that might fail:
+
+```solidity
+// ✅ GOOD - Try-catch for external calls
+function safeTransfer(address token, address to, uint256 amount) external {
+    try IERC20(token).transfer(to, amount) returns (bool success) {
+        if (!success) {
+            revert TransferFailed(address(this), to, amount);
+        }
+    } catch {
+        revert TransferFailed(address(this), to, amount);
+    }
+}
+```
+
+## Error Messages
+
+### Custom Error Parameters
+
+Include relevant context in error parameters:
+
+```solidity
+// ✅ GOOD - Informative error parameters
+error InsufficientBalance(uint256 required, uint256 available);
+error TransferFailed(address from, address to, uint256 amount);
+error InvalidAmount(uint256 amount, uint256 min, uint256 max);
+
+function transfer(address to, uint256 amount) external {
+    uint256 balance = balances[msg.sender];
+    if (balance < amount) {
+        revert InsufficientBalance(amount, balance);  // Includes both values
+    }
+    // ...
+}
+
+// ❌ BAD - Missing context
+error InsufficientBalance();
+
+function transfer(address to, uint256 amount) external {
+    if (balances[msg.sender] < amount) {
+        revert InsufficientBalance();  // No context
+    }
+    // ...
+}
+```
+
+### Require Messages
+
+Use descriptive require messages:
+
+```solidity
+// ✅ GOOD - Descriptive messages
+function withdraw(uint256 amount) external {
+    require(amount > 0, "Amount must be greater than zero");
+    require(balances[msg.sender] >= amount, "Insufficient balance for withdrawal");
+    require(!paused, "Contract is currently paused");
+    // ...
+}
+
+// ❌ BAD - Generic or missing messages
+function withdraw(uint256 amount) external {
+    require(amount > 0);
+    require(balances[msg.sender] >= amount, "Error");
+    // ...
+}
+```
+
+## Gas Optimization
+
+### Custom Errors vs Require Strings
+
+Custom errors are more gas efficient:
+
+```solidity
+// ✅ GOOD - Custom error (cheaper)
+error InsufficientBalance(uint256 required, uint256 available);
+
+function transfer(address to, uint256 amount) external {
+    if (balances[msg.sender] < amount) {
+        revert InsufficientBalance(amount, balances[msg.sender]);
+    }
+    // ...
+}
+
+// ❌ BAD - Require string (more expensive)
+function transfer(address to, uint256 amount) external {
+    require(balances[msg.sender] >= amount, "Insufficient balance");
+    // ...
+}
+```
+
+**Gas Comparison:**
+- Custom error: ~24 gas
+- Require with string: ~100+ gas (depends on string length)
+
+## Error Handling Best Practices
+
+### 1. Fail Fast
+
+Validate early and fail fast:
+
+```solidity
+// ✅ GOOD - Validate early
+function complexOperation(
+    address recipient,
+    uint256 amount,
+    bytes calldata data
+) external {
+    // Validate all inputs first
+    if (recipient == address(0)) revert InvalidAddress(recipient);
+    if (amount == 0) revert InvalidAmount(amount);
+    if (paused) revert ContractPaused();
+    
+    // Then perform operation
+    // ...
+}
+
+// ❌ BAD - Validate late
+function complexOperation(
+    address recipient,
+    uint256 amount,
+    bytes calldata data
+) external {
+    // Do some work first
+    uint256 result = calculateSomething();
+    
+    // Validate late (wasted gas)
+    if (recipient == address(0)) revert InvalidAddress(recipient);
+    // ...
+}
+```
+
+### 2. Use Modifiers for Common Checks
+
+```solidity
+contract Token {
+    error Unauthorized(address account);
+    error ContractPaused();
+    
+    modifier onlyOwner() {
+        if (msg.sender != owner) {
+            revert Unauthorized(msg.sender);
+        }
+        _;
+    }
+    
+    modifier whenNotPaused() {
+        if (paused) {
+            revert ContractPaused();
+        }
+        _;
+    }
+    
+    function transfer(address to, uint256 amount) external whenNotPaused {
+        // ...
+    }
+    
+    function pause() external onlyOwner {
+        paused = true;
+    }
+}
+```
+
+### 3. Provide Context in Errors
+
+```solidity
+// ✅ GOOD - Contextual errors
+error InsufficientBalance(uint256 required, uint256 available);
+error MaxSupplyExceeded(uint256 requested, uint256 max);
+
+function mint(address to, uint256 amount) external {
+    uint256 newSupply = totalSupply() + amount;
+    if (newSupply > MAX_SUPPLY) {
+        revert MaxSupplyExceeded(newSupply, MAX_SUPPLY);
+    }
+    // ...
+}
+```
+
+## Testing Errors
+
+### Test Error Conditions
+
+```solidity
+contract TokenTest is Test {
+    Token public token;
+    
+    function setUp() public {
+        token = new Token();
+    }
+    
+    function test_Transfer_RevertsOnInsufficientBalance() public {
+        uint256 amount = 1000;
+        
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                Token.InsufficientBalance.selector,
+                amount,
+                0
+            )
+        );
+        token.transfer(address(1), amount);
+    }
+    
+    function test_Transfer_RevertsOnZeroAddress() public {
+        vm.expectRevert(Token.InvalidAddress.selector);
+        token.transfer(address(0), 100);
+    }
+}
+```
+
+## Remember
+
+- **Use Custom Errors** - Gas efficient (0.8.4+)
+- **Validate Early** - Fail fast to save gas
+- **Provide Context** - Include relevant values in errors
+- **Use Modifiers** - For common checks
+- **Test Errors** - Verify error conditions
+- **Don't Swallow Errors** - Let them propagate
+- **Gas Efficiency** - Custom errors > require strings

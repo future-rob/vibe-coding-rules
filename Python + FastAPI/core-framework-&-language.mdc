@@ -1,0 +1,210 @@
+---
+description: Core framework, language, and runtime specifications for Python FastAPI projects
+globs:
+  - "**/*.py"
+  - "**/app/**"
+  - "**/tests/**"
+  - "**/pyproject.toml"
+  - "**/requirements*.txt"
+alwaysApply: true
+---
+
+# Core Framework & Language
+
+## Overview
+
+This document defines the foundational technology stack and runtime environment for the project. All code must align with these specifications.
+
+## Framework
+
+- **Framework:** [FastAPI](https://fastapi.tiangolo.com/)
+  - Modern, fast (high-performance) web framework for building APIs
+  - Built on Starlette for the web parts and Pydantic for data validation
+  - Automatic API documentation (OpenAPI/Swagger)
+  - Full async/await support with Python type hints
+  - Dependency injection system built-in
+
+## Language
+
+- **Language:** [Python](https://www.python.org/) 3.11+
+  - Used throughout the codebase with strict type hints
+  - Type checking with mypy enabled
+  - All files must use Python 3.11+ features where beneficial
+  - Async/await for all I/O operations
+
+## Runtime
+
+- **ASGI Server:** [Uvicorn](https://www.uvicorn.org/)
+  - Lightning-fast ASGI server implementation
+  - Built on uvloop and httptools
+  - Supports HTTP/1.1 and WebSockets
+  - Hot reload in development
+
+## Python Version Management
+
+Always check and use the correct Python version:
+
+```bash
+# Using pyenv
+pyenv install 3.11.7
+pyenv local 3.11.7
+
+# Using asdf
+asdf install python 3.11.7
+asdf local python 3.11.7
+
+# Verify version
+python --version  # Should show Python 3.11.x
+```
+
+## Type System Configuration
+
+The project uses strict type checking. Key requirements:
+
+- **mypy** configuration in `pyproject.toml`:
+
+  ```toml
+  [tool.mypy]
+  python_version = "3.11"
+  strict = true
+  warn_return_any = true
+  warn_unused_configs = true
+  disallow_untyped_defs = true
+  disallow_incomplete_defs = true
+  check_untyped_defs = true
+  no_implicit_optional = true
+  warn_redundant_casts = true
+  warn_unused_ignores = true
+  warn_no_return = true
+  warn_unreachable = true
+  strict_equality = true
+  ```
+
+- All functions must have type hints
+- Use `from __future__ import annotations` for forward references
+- Prefer `Union[X, None]` or `X | None` (Python 3.10+) over `Optional[X]`
+- Use TypeVar, Generic types where appropriate
+
+## Project Structure
+
+Standard FastAPI project structure:
+
+```
+project-root/
+├── app/
+│   ├── __init__.py
+│   ├── main.py              # FastAPI application instance
+│   ├── api/                 # API routes
+│   │   ├── __init__.py
+│   │   ├── v1/              # API version 1
+│   │   │   ├── __init__.py
+│   │   │   ├── endpoints/   # Route handlers
+│   │   │   └── router.py    # Main v1 router
+│   │   └── dependencies.py  # Shared dependencies
+│   ├── core/                # Core functionality
+│   │   ├── __init__.py
+│   │   ├── config.py        # Settings management
+│   │   ├── security.py      # Security utilities
+│   │   └── exceptions.py    # Custom exceptions
+│   ├── models/              # Pydantic models & SQLAlchemy models
+│   │   ├── __init__.py
+│   │   ├── domain/          # Domain models
+│   │   └── database/        # Database models
+│   ├── services/            # Business logic
+│   │   └── __init__.py
+│   ├── repositories/        # Data access layer
+│   │   └── __init__.py
+│   └── utils/               # Utility functions
+│       └── __init__.py
+├── tests/                   # Test files
+├── alembic/                 # Database migrations
+├── scripts/                 # Utility scripts
+├── .env.example             # Example environment variables
+├── pyproject.toml           # Project configuration
+├── poetry.lock              # Locked dependencies
+└── Dockerfile               # Container configuration
+```
+
+## Core Dependencies
+
+Essential packages for FastAPI development:
+
+```toml
+[tool.poetry.dependencies]
+python = "^3.11"
+fastapi = "^0.104.0"
+uvicorn = {extras = ["standard"], version = "^0.24.0"}
+pydantic = "^2.4.0"
+pydantic-settings = "^2.0.0"
+sqlalchemy = "^2.0.0"
+asyncpg = "^0.29.0"  # For PostgreSQL
+alembic = "^1.12.0"
+python-jose = {extras = ["cryptography"], version = "^3.3.0"}
+passlib = {extras = ["bcrypt"], version = "^1.7.4"}
+python-multipart = "^0.0.6"
+redis = "^5.0.0"
+celery = "^5.3.0"
+httpx = "^0.25.0"  # Async HTTP client
+```
+
+## Development Dependencies
+
+```toml
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.4.0"
+pytest-asyncio = "^0.21.0"
+pytest-cov = "^4.1.0"
+pytest-mock = "^3.11.0"
+black = "^23.9.0"
+isort = "^5.12.0"
+mypy = "^1.5.0"
+ruff = "^0.0.292"
+pre-commit = "^3.4.0"
+```
+
+## Environment Setup
+
+1. **Install Poetry** (dependency management):
+
+   ```bash
+   curl -sSL https://install.python-poetry.org | python3 -
+   ```
+
+2. **Install dependencies**:
+
+   ```bash
+   poetry install
+   ```
+
+3. **Activate virtual environment**:
+
+   ```bash
+   poetry shell
+   ```
+
+4. **Install pre-commit hooks**:
+   ```bash
+   pre-commit install
+   ```
+
+## Running the Application
+
+Development mode with hot reload:
+
+```bash
+# Using Poetry
+poetry run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+
+# Or directly if in poetry shell
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+Production mode:
+
+```bash
+# With multiple workers
+uvicorn app.main:app --workers 4 --host 0.0.0.0 --port 8000
+
+# Or using Gunicorn with Uvicorn workers
+gunicorn app.main:app -w 4 -k uvicorn.workers.UvicornWorker
+```

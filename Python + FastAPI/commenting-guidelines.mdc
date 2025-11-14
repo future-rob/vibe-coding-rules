@@ -1,0 +1,379 @@
+---
+description: Commenting and documentation standards for Python FastAPI codebase
+globs:
+  - "**/*.py"
+alwaysApply: true
+---
+
+# Commenting Guidelines
+
+## Philosophy
+
+Comments should explain the **"why"** and **"intent"**, not the **"what"**. The code itself should be self-documenting through clear variable names, type hints, and structure.
+
+## When to Comment
+
+### ✅ DO Comment
+
+1. **Public APIs** - All public functions, classes, and methods
+2. **Complex Logic** - Non-obvious algorithms or business rules
+3. **Non-Obvious Decisions** - Why a particular approach was chosen
+4. **Workarounds** - Temporary fixes or known issues
+5. **Performance Considerations** - Why a specific optimization was made
+6. **Business Rules** - Domain-specific logic that isn't obvious from code
+
+### ❌ DON'T Comment
+
+1. **Obvious Code** - Code that is self-explanatory
+2. **Type Duplication** - Don't repeat what type hints already say
+3. **Version Control Info** - Don't include git history in comments
+4. **Commented-Out Code** - Delete it, don't comment it out
+5. **Implementation Details** - Focus on intent, not how it's done
+
+## Docstring Format
+
+Use **Google-style docstrings** for all public functions, classes, and methods.
+
+### Function Docstrings
+
+```python
+def get_user_by_id(
+    user_id: int,
+    include_inactive: bool = False,
+) -> Optional[User]:
+    """
+    Get user by ID from the database.
+    
+    This function retrieves a user by their unique identifier. It can optionally
+    include inactive users in the search.
+    
+    Args:
+        user_id: The unique identifier of the user to retrieve
+        include_inactive: If True, includes inactive users in the search.
+            Defaults to False.
+    
+    Returns:
+        User object if found, None if user doesn't exist or is inactive
+        (when include_inactive is False).
+    
+    Raises:
+        ValidationError: If user_id is not a positive integer.
+        DatabaseError: If database query fails.
+    
+    Example:
+        >>> user = get_user_by_id(123)
+        >>> print(user.email)
+        'user@example.com'
+        
+        >>> inactive_user = get_user_by_id(456, include_inactive=True)
+    """
+    pass
+```
+
+### Class Docstrings
+
+```python
+class UserService:
+    """
+    Service for user-related business logic.
+    
+    This service encapsulates all business logic related to user management,
+    including user creation, updates, and retrieval. It acts as an intermediary
+    between API routes and the repository layer.
+    
+    Attributes:
+        db: Database session for data access
+        repository: User repository instance
+    
+    Example:
+        >>> service = UserService(db_session)
+        >>> user = await service.create_user(user_data)
+        >>> print(user.email)
+    """
+    
+    def __init__(self, db: AsyncSession) -> None:
+        """Initialize user service with database session."""
+        self.db = db
+        self.repository = UserRepository(db)
+```
+
+### Method Docstrings
+
+```python
+class UserService:
+    async def create_user(self, user_data: UserCreate) -> User:
+        """
+        Create a new user in the system.
+        
+        This method validates the user data, checks for duplicate emails,
+        hashes the password, and creates the user record. It also sends
+        a welcome email asynchronously.
+        
+        Args:
+            user_data: Pydantic model containing user creation data
+        
+        Returns:
+            Created User object with generated ID
+        
+        Raises:
+            ConflictError: If user with same email already exists
+            ValidationError: If user data fails validation
+        
+        Note:
+            Password is automatically hashed before storage. The original
+            password is never stored in plain text.
+        """
+        pass
+```
+
+## Inline Comments
+
+### When to Use Inline Comments
+
+```python
+# ✅ GOOD - Explains why, not what
+# Use async here because we're making multiple I/O calls
+results = await asyncio.gather(
+    fetch_user_data(user_id),
+    fetch_user_posts(user_id),
+    fetch_user_comments(user_id),
+)
+
+# ✅ GOOD - Explains business rule
+# Users created before 2020 are grandfathered into the old pricing model
+if user.created_at < datetime(2020, 1, 1):
+    apply_legacy_pricing(user)
+
+# ✅ GOOD - Explains non-obvious decision
+# Using selectinload instead of joinedload to avoid cartesian product
+# when loading user posts and comments simultaneously
+users = await session.execute(
+    select(User).options(
+        selectinload(User.posts),
+        selectinload(User.comments),
+    )
+)
+
+# ❌ BAD - States the obvious
+# Increment the counter
+counter += 1
+
+# ❌ BAD - Repeats what code says
+# Get user by ID
+user = get_user_by_id(user_id)
+
+# ❌ BAD - Commented-out code
+# old_code()
+# if old_condition:
+#     do_something()
+```
+
+## TODO Comments
+
+Use TODO comments sparingly and include context:
+
+```python
+# ✅ GOOD - Specific TODO with context
+# TODO: Refactor this when we migrate to Redis caching
+# Current in-memory cache will be replaced with Redis in Q2
+def get_cached_user(user_id: int) -> Optional[User]:
+    pass
+
+# ❌ BAD - Vague TODO
+# TODO: Fix this later
+def broken_function():
+    pass
+```
+
+## FIXME Comments
+
+Use FIXME for known issues that need attention:
+
+```python
+# ✅ GOOD - Explains the issue and workaround
+# FIXME: This is a workaround for a bug in external API v1.2
+# Remove when external API is updated to v1.3 (expected Q2)
+response = await external_api.get_data()
+if response.status_code == 500:
+    # Retry with legacy endpoint
+    response = await external_api.get_data_legacy()
+
+# ❌ BAD - Vague FIXME
+# FIXME: This doesn't work
+def broken_function():
+    pass
+```
+
+## Type Hints vs Comments
+
+Type hints eliminate the need for many comments:
+
+```python
+# ❌ BAD - Comment describes type
+# user_id is an integer
+def get_user(user_id):
+    pass
+
+# ✅ GOOD - Type hint is self-documenting
+def get_user(user_id: int) -> Optional[User]:
+    pass
+```
+
+## Complex Logic Comments
+
+For complex algorithms, explain the approach:
+
+```python
+def calculate_user_score(user: User) -> float:
+    """
+    Calculate user engagement score.
+    
+    Uses a weighted algorithm that considers:
+    - Post frequency (40% weight)
+    - Comment activity (30% weight)
+    - Login frequency (20% weight)
+    - Profile completeness (10% weight)
+    
+    Returns a score between 0.0 and 100.0.
+    """
+    # Calculate time-weighted post frequency
+    # More recent posts have higher weight
+    post_score = calculate_post_score(user.posts)
+    
+    # Calculate comment engagement
+    # Comments on others' posts count more than own posts
+    comment_score = calculate_comment_score(user.comments)
+    
+    # ... rest of calculation
+    return final_score
+```
+
+## API Documentation Comments
+
+For API endpoints, document request/response:
+
+```python
+@router.post("/users", response_model=UserResponse, status_code=201)
+async def create_user(
+    user_data: UserCreate,
+    current_user: User = Depends(get_current_admin),
+) -> UserResponse:
+    """
+    Create a new user account.
+    
+    This endpoint allows administrators to create new user accounts.
+    The user will receive a welcome email with login credentials.
+    
+    **Request Body:**
+    - email: Valid email address (required)
+    - full_name: User's full name (required, 1-255 chars)
+    - password: Password (required, min 8 chars)
+    - is_active: Whether account is active (default: true)
+    
+    **Response:**
+    - 201: User created successfully
+    - 400: Validation error
+    - 401: Unauthorized (not admin)
+    - 409: User with email already exists
+    
+    **Example Request:**
+    ```json
+    {
+        "email": "user@example.com",
+        "full_name": "John Doe",
+        "password": "securepassword123"
+    }
+    ```
+    """
+    pass
+```
+
+## Module-Level Docstrings
+
+Document modules at the top:
+
+```python
+"""
+User service module.
+
+This module contains the UserService class which handles all business logic
+related to user management, including:
+- User creation and updates
+- User authentication
+- User profile management
+- User permissions
+
+The service acts as an intermediary between API routes and the repository
+layer, ensuring business rules are enforced and data is properly validated.
+"""
+```
+
+## Best Practices
+
+1. **Write Self-Documenting Code**
+   - Use descriptive variable names
+   - Use type hints
+   - Keep functions small and focused
+   - Then add comments only where needed
+
+2. **Keep Comments Up to Date**
+   - Update comments when code changes
+   - Delete outdated comments
+   - Don't let comments drift from code
+
+3. **Use Docstrings for Public APIs**
+   - All public functions need docstrings
+   - Private functions may not need them if code is clear
+   - Classes always need docstrings
+
+4. **Explain Why, Not What**
+   - Code shows what it does
+   - Comments explain why it does it
+   - Focus on intent and reasoning
+
+5. **Be Concise**
+   - Don't write novels
+   - Be clear and to the point
+   - Use examples when helpful
+
+## Common Patterns
+
+### Pattern 1: Business Rule Explanation
+
+```python
+# ✅ GOOD
+# Users created before 2020 are exempt from the new verification process
+# This is a grandfather clause from the legacy system
+if user.created_at < datetime(2020, 1, 1):
+    return skip_verification(user)
+```
+
+### Pattern 2: Performance Optimization
+
+```python
+# ✅ GOOD
+# Using selectinload to avoid N+1 query problem
+# This loads all user posts in a single additional query
+users = await session.execute(
+    select(User).options(selectinload(User.posts))
+)
+```
+
+### Pattern 3: Workaround
+
+```python
+# ✅ GOOD
+# FIXME: Workaround for bug in external API v1.2
+# The API returns 500 for valid requests with special characters
+# Expected fix in v1.3 (Q2 2024)
+if "special_char" in request_data:
+    request_data = sanitize_special_chars(request_data)
+```
+
+## Remember
+
+- **Code > Comments** - Write clear code first
+- **Explain Why** - Focus on intent and reasoning
+- **Keep Updated** - Maintain comments with code
+- **Public APIs** - Always document public functions
+- **Be Concise** - Don't over-comment obvious code

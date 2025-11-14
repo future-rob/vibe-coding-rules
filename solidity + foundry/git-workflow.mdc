@@ -1,0 +1,429 @@
+---
+description: Git workflow, commit message conventions, and version control best practices for Solidity Foundry projects
+globs:
+  - "**/.git/**"
+  - "**/.gitignore"
+alwaysApply: true
+---
+
+# Git Workflow Guidelines
+
+## Commit Message Format
+
+Follow the [Conventional Commits](https://www.conventionalcommits.org/) specification for consistent commit messages.
+
+### Format
+
+```
+<type>(<scope>): <subject>
+
+<body>
+
+<footer>
+```
+
+### Types
+
+- **`feat`**: A new feature
+- **`fix`**: A bug fix
+- **`docs`**: Documentation only changes
+- **`style`**: Code style changes (formatting, etc.)
+- **`refactor`**: Code refactoring without bug fixes or features
+- **`perf`**: Performance/gas improvements
+- **`test`**: Adding or updating tests
+- **`chore`**: Maintenance tasks, dependency updates
+- **`build`**: Build system or external dependencies
+- **`ci`**: CI/CD configuration changes
+- **`security`**: Security fixes or improvements
+
+### Examples
+
+```bash
+# Feature
+feat(token): add minting functionality with role-based access control
+
+# Bug fix
+fix(vault): resolve reentrancy vulnerability in withdraw function
+
+# Security fix
+security(token): fix integer overflow in transfer function
+
+# Gas optimization
+perf(token): optimize storage reads in batch transfer function
+
+# Breaking change
+feat(token)!: change transfer function signature
+
+BREAKING CHANGE: Transfer function now requires additional parameter
+
+# Multiple changes
+feat(token): add staking functionality
+
+- Add StakingContract
+- Implement stake/unstake functions
+- Add reward distribution mechanism
+```
+
+### Scope
+
+Use scope to indicate which part of the codebase is affected:
+
+- `token`: Token contracts
+- `vault`: Vault contracts
+- `access`: Access control contracts
+- `interfaces`: Interface definitions
+- `libraries`: Library contracts
+- `tests`: Test files
+- `scripts`: Deployment scripts
+- `deps`: Dependencies
+
+### Subject
+
+- Use imperative mood ("add" not "added" or "adds")
+- First line should be 50 characters or less
+- Don't end with a period
+- Be specific and descriptive
+
+### Body (Optional)
+
+- Explain the "what" and "why" vs "how"
+- Wrap at 72 characters
+- Can include multiple paragraphs
+- Include security considerations if applicable
+
+### Footer (Optional)
+
+- Reference issues: `Closes #123`, `Fixes #456`
+- Breaking changes: `BREAKING CHANGE: <description>`
+- Security: `SECURITY: <description>` for security fixes
+
+## Branch Naming
+
+### Format
+
+```
+<type>/<description>
+```
+
+### Types
+
+- `feature/`: New features
+- `fix/`: Bug fixes
+- `hotfix/`: Critical production fixes
+- `security/`: Security fixes
+- `refactor/`: Code refactoring
+- `docs/`: Documentation updates
+- `test/`: Test additions/updates
+- `perf/`: Performance/gas optimizations
+
+### Examples
+
+```bash
+feature/token-staking
+fix/vault-reentrancy
+security/token-overflow-fix
+hotfix/critical-transfer-bug
+refactor/access-control
+perf/batch-transfer-optimization
+```
+
+## Commit Best Practices
+
+### ✅ DO
+
+- Make atomic commits (one logical change per commit)
+- Write clear, descriptive commit messages
+- Commit frequently (small, incremental changes)
+- Test before committing (`forge test`)
+- Run pre-commit hooks before committing
+- Review your changes with `git diff` before committing
+- Include security considerations in commit messages
+
+### ❌ DON'T
+
+- Commit commented-out code
+- Commit debugging code or console.log statements
+- Commit with compiler warnings (see `no-hiding.mdc`)
+- Mix unrelated changes in one commit
+- Commit private keys or secrets
+- Force push to main/master branch
+- Commit without running tests
+- Commit contracts with known vulnerabilities
+
+## Workflow
+
+### 1. Create Feature Branch
+
+```bash
+git checkout -b feature/my-new-feature
+```
+
+### 2. Make Changes
+
+- Write code following all guidelines
+- Ensure no compiler warnings (`forge build`)
+- Ensure code is formatted (`forge fmt`)
+- Test your changes (`forge test`)
+- Run gas snapshots if optimizing (`forge test --gas-report`)
+
+### 3. Stage Changes
+
+```bash
+# Review what you're committing
+git status
+git diff
+
+# Stage specific files
+git add src/contracts/Token.sol
+
+# Or stage all changes
+git add .
+```
+
+### 4. Run Pre-commit Hooks
+
+```bash
+# Pre-commit hooks should run automatically
+# But you can run manually:
+pre-commit run --all-files
+
+# Or run Foundry checks manually
+forge fmt --check
+forge test
+```
+
+### 5. Commit
+
+```bash
+git commit -m "feat(token): add minting functionality"
+```
+
+### 6. Push and Create PR
+
+```bash
+git push origin feature/my-new-feature
+```
+
+Then create a Pull Request with:
+- Clear title matching commit message format
+- Description explaining the change
+- Security considerations if applicable
+- Gas impact if optimizing
+- Reference to related issues
+
+## Pull Request Guidelines
+
+### PR Title
+
+Follow the same format as commit messages:
+
+```
+feat(token): add staking functionality
+```
+
+### PR Description Template
+
+```markdown
+## Description
+Brief description of what this PR does.
+
+## Type of Change
+- [ ] Bug fix
+- [ ] New feature
+- [ ] Breaking change
+- [ ] Security fix
+- [ ] Performance improvement
+- [ ] Documentation update
+
+## Security Considerations
+- [ ] Security review completed
+- [ ] No known vulnerabilities
+- [ ] Access control properly implemented
+- [ ] Reentrancy protection in place
+- [ ] Input validation implemented
+
+## Testing
+- [ ] Tests pass locally (`forge test`)
+- [ ] Fuzz tests added/updated
+- [ ] Gas snapshots updated (`forge test --gas-report`)
+- [ ] Manual testing completed
+- [ ] Edge cases considered
+
+## Gas Impact
+- [ ] Gas usage measured
+- [ ] Optimization documented
+- [ ] Gas report included
+
+## Checklist
+- [ ] Code follows style guidelines (`forge fmt`)
+- [ ] No compiler warnings
+- [ ] NatSpec documentation added
+- [ ] Self-review completed
+- [ ] Tests added/updated
+- [ ] Documentation updated if needed
+```
+
+## Handling Conflicts
+
+### When Your Branch is Behind
+
+```bash
+# Fetch latest changes
+git fetch origin
+
+# Rebase your branch on main
+git checkout feature/my-feature
+git rebase origin/main
+
+# Resolve conflicts if any
+# Then continue rebase
+git rebase --continue
+
+# Force push (only on feature branches)
+git push --force-with-lease origin feature/my-feature
+```
+
+## Git Ignore
+
+Ensure these are in `.gitignore`:
+
+```
+# Foundry
+out/
+cache/
+broadcast/
+
+# Dependencies
+lib/
+
+# Environment
+.env
+.env.local
+.env*.local
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*.sublime-project
+*.sublime-workspace
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+.cache/
+
+# Private keys (CRITICAL - never commit)
+*.key
+*.pem
+*.env
+secrets/
+```
+
+## Pre-commit Hooks
+
+**Configuration (`.pre-commit-config.yaml`):**
+
+```yaml
+repos:
+  - repo: local
+    hooks:
+      - id: forge-fmt
+        name: forge fmt
+        entry: forge fmt --check
+        language: system
+        pass_filenames: false
+        always_run: true
+      
+      - id: forge-test
+        name: forge test
+        entry: forge test
+        language: system
+        pass_filenames: false
+        always_run: true
+      
+      - id: solhint
+        name: solhint
+        entry: solhint
+        language: system
+        types: [solidity]
+        pass_filenames: true
+```
+
+**Install hooks:**
+
+```bash
+pre-commit install
+```
+
+## Common Commands
+
+```bash
+# Check status
+git status
+
+# View changes
+git diff
+git diff --staged
+
+# View commit history
+git log --oneline --graph
+
+# Undo last commit (keep changes)
+git reset --soft HEAD~1
+
+# Undo last commit (discard changes)
+git reset --hard HEAD~1
+
+# Stash changes
+git stash
+git stash pop
+
+# View stashes
+git stash list
+
+# Create branch from main
+git checkout main
+git pull origin main
+git checkout -b feature/new-feature
+```
+
+## Security Considerations
+
+### Never Commit
+
+- Private keys
+- Mnemonic phrases
+- API keys
+- Environment files with secrets
+- Hardcoded addresses with private keys
+
+### Security Commit Messages
+
+For security fixes, use the `security` type:
+
+```bash
+security(token): fix reentrancy vulnerability in withdraw
+
+SECURITY: Fixed reentrancy attack vector by implementing
+checks-effects-interactions pattern and ReentrancyGuard.
+```
+
+## Remember
+
+- **Small, frequent commits** are better than large, infrequent ones
+- **Clear commit messages** help future you and your team
+- **Test before committing** to avoid broken commits
+- **Run pre-commit hooks** to catch issues early
+- **Review your changes** with `git diff` before committing
+- **Never commit secrets** or private keys
+- **Follow conventional commits** for consistency
+- **Security first** - Always document security considerations

@@ -1,0 +1,320 @@
+---
+description: Database and data management patterns for Python FastAPI applications
+globs:
+  - "**/app/repositories/**"
+  - "**/app/models/**"
+alwaysApply: true
+---
+
+# Data Management Patterns
+
+## SQLAlchemy Patterns
+
+### Async Sessions
+
+Always use async sessions:
+
+```python
+# ✅ GOOD - Async session
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
+
+engine = create_async_engine(
+    settings.DATABASE_URL,
+    pool_size=20,
+    max_overflow=10,
+    pool_pre_ping=True,
+)
+
+AsyncSessionLocal = async_sessionmaker(
+    engine,
+    class_=AsyncSession,
+    expire_on_commit=False,
+)
+
+# ❌ BAD - Sync session (don't use)
+from sqlalchemy.orm import Session
+session = Session()  # Blocking
+```
+
+### Session Management
+
+Proper session lifecycle:
+
+```python
+# app/core/database.py
+async def get_db() -> AsyncSession:
+    """Get database session."""
+    async with AsyncSessionLocal() as session:
+        try:
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
+        finally:
+            await session.close()
+```
+
+### Transactions
+
+Use transactions for multi-step operations:
+
+```python
+# ✅ GOOD - Explicit transaction
+async def transfer_funds(from_account_id: int, to_account_id: int, amount: float):
+    """Transfer funds between accounts."""
+    async with session.begin():
+        # Both operations in same transaction
+        from_account = await session.get(Account, from_account_id)
+        to_account = await session.get(Account, to_account_id)
+        
+        from_account.balance -= amount
+        to_account.balance += amount
+        
+        # Commit happens automatically at end of context
+```
+
+## Query Patterns
+
+### Eager Loading
+
+Avoid N+1 query problems:
+
+```python
+# ❌ BAD - N+1 queries
+users = await session.execute(select(User))
+for user in users.scalars():
+    posts = await session.execute(
+        select(Post).where(Post.user_id == user.id)
+    )  # One query per user
+
+# ✅ GOOD - Eager loading
+from sqlalchemy.orm import selectinload
+
+users = await session.execute(
+    select(User).options(selectinload(User.posts))
+)  # Two queries total
+```
+
+### Query Builders
+
+Build queries dynamically:
+
+```python
+# ✅ GOOD - Dynamic query building
+def build_user_query(
+    status: Optional[str] = None,
+    email_contains: Optional[str] = None,
+) -> Select:
+    """Build user query with optional filters."""
+    query = select(User)
+    
+    if status:
+        query = query.where(User.status == status)
+    
+    if email_contains:
+        query = query.where(User.email.contains(email_contains))
+    
+    return query
+
+# Usage
+query = build_user_query(status="active", email_contains="@example.com")
+result = await session.execute(query)
+```
+
+## Repository Pattern
+
+### Basic Repository
+
+```python
+# app/repositories/user_repository.py
+from typing import Optional, List
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.database.user import User as UserModel
+from app.models.domain.user import User
+
+
+class UserRepository:
+    """Repository for user data access."""
+    
+    def __init__(self, db: AsyncSession):
+        self.db = db
+    
+    async def get_by_id(self, user_id: int) -> Optional[User]:
+        """Get user by ID."""
+        result = await self.db.execute(
+            select(UserModel).where(UserModel.id == user_id)
+        )
+        user_model = result.scalar_one_or_none()
+        return User.from_orm(user_model) if user_model else None
+    
+    async def get_by_email(self, email: str) -> Optional[User]:
+        """Get user by email."""
+        result = await self.db.execute(
+            select(UserModel).where(UserModel.email == email)
+        )
+        user_model = result.scalar_one_or_none()
+        return User.from_orm(user_model) if user_model else None
+    
+    async def create(self, user_data: dict) -> User:
+        """Create new user."""
+        user_model = UserModel(**user_data)
+        self.db.add(user_model)
+        await self.db.flush()
+        await self.db.refresh(user_model)
+        return User.from_orm(user_model)
+    
+    async def update(self, user: User) -> User:
+        """Update user."""
+        result = await self.db.execute(
+            select(UserModel).where(UserModel.id == user.id)
+        )
+        user_model = result.scalar_one()
+        
+        for key, value in user.model_dump(exclude_unset=True).items():
+            setattr(user_model, key, value)
+        
+        await self.db.flush()
+        await self.db.refresh(user_model)
+        return User.from_orm(user_model)
+    
+    async def delete(self, user_id: int) -> None:
+        """Delete user."""
+        result = await self.db.execute(
+            select(UserModel).where(UserModel.id == user_id)
+        )
+        user_model = result.scalar_one_or_none()
+        if user_model:
+            await self.db.delete(user_model)
+            await self.db.flush()
+```
+
+## Migrations with Alembic
+
+### Creating Migrations
+
+```bash
+# Create migration
+alembic revision --autogenerate -m "Add user table"
+
+# Apply migration
+alembic upgrade head
+
+# Rollback migration
+alembic downgrade -1
+```
+
+### Migration Best Practices
+
+```python
+# ✅ GOOD - Migration with proper up/down
+"""Add user table
+
+Revision ID: abc123
+Revises: 
+Create Date: 2024-01-15 10:00:00
+"""
+from alembic import op
+import sqlalchemy as sa
+
+def upgrade() -> None:
+    op.create_table(
+        'users',
+        sa.Column('id', sa.Integer(), nullable=False),
+        sa.Column('email', sa.String(), nullable=False),
+        sa.Column('full_name', sa.String(), nullable=False),
+        sa.Column('hashed_password', sa.String(), nullable=False),
+        sa.Column('is_active', sa.Boolean(), default=True),
+        sa.Column('created_at', sa.DateTime(), nullable=False),
+        sa.Column('updated_at', sa.DateTime(), nullable=False),
+        sa.PrimaryKeyConstraint('id'),
+        sa.UniqueConstraint('email'),
+    )
+    op.create_index('ix_users_email', 'users', ['email'])
+
+def downgrade() -> None:
+    op.drop_index('ix_users_email', table_name='users')
+    op.drop_table('users')
+```
+
+## Data Validation
+
+### Pydantic Models
+
+Use Pydantic for all I/O:
+
+```python
+# app/schemas/user.py
+from pydantic import BaseModel, EmailStr, Field, validator
+from datetime import datetime
+
+class UserCreate(BaseModel):
+    """User creation schema."""
+    email: EmailStr
+    full_name: str = Field(..., min_length=1, max_length=255)
+    password: str = Field(..., min_length=8, max_length=100)
+    
+    @validator('password')
+    def validate_password(cls, v):
+        """Validate password strength."""
+        if not any(c.isupper() for c in v):
+            raise ValueError('Password must contain uppercase letter')
+        if not any(c.islower() for c in v):
+            raise ValueError('Password must contain lowercase letter')
+        if not any(c.isdigit() for c in v):
+            raise ValueError('Password must contain digit')
+        return v
+
+class UserResponse(BaseModel):
+    """User response schema."""
+    id: int
+    email: EmailStr
+    full_name: str
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+    
+    class Config:
+        from_attributes = True
+```
+
+## Serialization
+
+### Model to Pydantic
+
+```python
+# ✅ GOOD - Use from_attributes
+user_model = await session.get(UserModel, user_id)
+user_response = UserResponse.from_orm(user_model)
+
+# ✅ GOOD - Manual conversion
+user_response = UserResponse(
+    id=user_model.id,
+    email=user_model.email,
+    full_name=user_model.full_name,
+    is_active=user_model.is_active,
+    created_at=user_model.created_at,
+    updated_at=user_model.updated_at,
+)
+```
+
+## Best Practices
+
+1. **Async First** - Always use async sessions
+2. **Eager Loading** - Avoid N+1 queries
+3. **Transactions** - Use for multi-step operations
+4. **Validation** - Validate with Pydantic
+5. **Migrations** - Use Alembic for schema changes
+6. **Repository Pattern** - Abstract data access
+7. **Connection Pooling** - Configure properly
+8. **Query Optimization** - Use indexes, optimize queries
+
+## Remember
+
+- **Async Sessions** - Always use async
+- **Eager Loading** - Prevent N+1 problems
+- **Transactions** - For multi-step operations
+- **Validation** - Pydantic for all I/O
+- **Migrations** - Alembic for schema changes

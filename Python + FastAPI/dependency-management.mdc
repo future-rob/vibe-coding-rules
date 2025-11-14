@@ -1,0 +1,220 @@
+---
+description: Dependency management best practices for Python FastAPI projects
+globs:
+  - "**/pyproject.toml"
+  - "**/requirements*.txt"
+  - "**/poetry.lock"
+alwaysApply: true
+---
+
+# Dependency Management
+
+## Poetry (Preferred)
+
+### Project Setup
+
+```toml
+# pyproject.toml
+[tool.poetry]
+name = "my-fastapi-app"
+version = "1.0.0"
+description = "FastAPI application"
+authors = ["Your Name <you@example.com>"]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+fastapi = "^0.104.0"
+uvicorn = {extras = ["standard"], version = "^0.24.0"}
+pydantic = "^2.4.0"
+pydantic-settings = "^2.0.0"
+sqlalchemy = "^2.0.0"
+asyncpg = "^0.29.0"
+alembic = "^1.12.0"
+python-jose = {extras = ["cryptography"], version = "^3.3.0"}
+passlib = {extras = ["bcrypt"], version = "^1.7.4"}
+python-multipart = "^0.0.6"
+redis = "^5.0.0"
+celery = "^5.3.0"
+httpx = "^0.25.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.4.0"
+pytest-asyncio = "^0.21.0"
+pytest-cov = "^4.1.0"
+pytest-mock = "^3.11.0"
+black = "^23.9.0"
+isort = "^5.12.0"
+mypy = "^1.5.0"
+ruff = "^0.0.292"
+pre-commit = "^3.4.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+```
+
+### Common Commands
+
+```bash
+# Install dependencies
+poetry install
+
+# Add dependency
+poetry add fastapi
+
+# Add dev dependency
+poetry add --group dev pytest
+
+# Update dependencies
+poetry update
+
+# Show outdated packages
+poetry show --outdated
+
+# Export to requirements.txt (if needed)
+poetry export -f requirements.txt --output requirements.txt --without-hashes
+```
+
+## Version Pinning
+
+### Exact Versions in Lock File
+
+```toml
+# pyproject.toml - Use ranges
+fastapi = "^0.104.0"  # Allows 0.104.0 to <0.105.0
+
+# poetry.lock - Exact versions (auto-generated)
+# Don't edit manually
+```
+
+### Version Strategies
+
+```toml
+# Caret (^) - Recommended for most dependencies
+fastapi = "^0.104.0"  # >=0.104.0, <0.105.0
+
+# Tilde (~) - More restrictive
+fastapi = "~0.104.0"  # >=0.104.0, <0.104.1
+
+# Exact - Only for critical dependencies
+fastapi = "0.104.0"  # Exactly this version
+
+# Wildcard - Not recommended
+fastapi = "*"  # Any version (dangerous)
+```
+
+## Security
+
+### Regular Audits
+
+```bash
+# Check for vulnerabilities
+poetry audit
+
+# Update vulnerable packages
+poetry update package-name
+
+# Use safety (additional security checker)
+pip install safety
+safety check
+```
+
+### Dependency Updates
+
+```bash
+# Check what would be updated
+poetry update --dry-run
+
+# Update specific package
+poetry update fastapi
+
+# Update all packages (be careful!)
+poetry update
+```
+
+## Docker Integration
+
+### Multi-Stage Builds
+
+```dockerfile
+# Dockerfile
+FROM python:3.11-slim as builder
+
+WORKDIR /app
+
+# Install Poetry
+RUN pip install poetry
+
+# Copy dependency files
+COPY pyproject.toml poetry.lock ./
+
+# Install dependencies
+RUN poetry config virtualenvs.create false \
+    && poetry install --no-interaction --no-ansi --no-root
+
+# Production stage
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Copy installed packages from builder
+COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=builder /usr/local/bin /usr/local/bin
+
+# Copy application code
+COPY . .
+
+# Run application
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+```
+
+## Requirements.txt (Alternative)
+
+### If Not Using Poetry
+
+```txt
+# requirements.txt
+fastapi==0.104.0
+uvicorn[standard]==0.24.0
+pydantic==2.4.0
+pydantic-settings==2.0.0
+sqlalchemy==2.0.0
+asyncpg==0.29.0
+alembic==1.12.0
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+python-multipart==0.0.6
+redis==5.0.0
+celery==5.3.0
+httpx==0.25.0
+
+# requirements-dev.txt
+pytest==7.4.0
+pytest-asyncio==0.21.0
+pytest-cov==4.1.0
+pytest-mock==3.11.0
+black==23.9.0
+isort==5.12.0
+mypy==1.5.0
+ruff==0.0.292
+pre-commit==3.4.0
+```
+
+## Best Practices
+
+1. **Use Poetry** - Better dependency resolution
+2. **Pin Versions** - Use ranges in pyproject.toml, exact in lock file
+3. **Regular Updates** - Keep dependencies up to date
+4. **Security Audits** - Check for vulnerabilities regularly
+5. **Separate Dev Dependencies** - Keep dev tools separate
+6. **Lock File** - Commit poetry.lock to version control
+7. **Document Dependencies** - Explain why each dependency is needed
+
+## Remember
+
+- **Use Poetry** - Preferred dependency manager
+- **Pin Versions** - Use version ranges appropriately
+- **Security First** - Regular audits and updates
+- **Lock Files** - Commit lock files to version control
+- **Separate Dev** - Keep dev dependencies separate
+- **Document** - Explain why dependencies are needed

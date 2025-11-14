@@ -1,0 +1,272 @@
+---
+description: Guidance for resolving rule conflicts and handling exceptions
+globs:
+  - "**/*.py"
+alwaysApply: true
+---
+
+# Conflict Resolution
+
+## Overview
+
+When coding guidelines conflict or when exceptions are needed, this document provides guidance on how to resolve conflicts and document exceptions.
+
+## Priority Hierarchy
+
+When rules conflict, follow this priority order:
+
+1. **Security Guidelines** - Security always takes precedence
+2. **No Hiding Rule** - Never suppress errors or warnings
+3. **Core Framework & Language** - Framework requirements
+4. **Error Handling Patterns** - Consistent error handling
+5. **Code Style Guidelines** - Formatting and style
+6. **Performance Guidelines** - Optimization considerations
+7. **Commenting Guidelines** - Documentation standards
+
+## Common Conflict Scenarios
+
+### Scenario 1: Performance vs Code Style
+
+**Conflict:** Performance optimization requires less readable code
+
+**Resolution:**
+- Optimize for performance when there's measurable impact
+- Add comments explaining the optimization
+- Consider if the optimization is necessary
+
+**Example:**
+
+```python
+# Performance requires complex query
+# Style prefers simpler code
+# Resolution: Optimize, but document why
+
+# ✅ GOOD - Optimized with explanation
+# Using raw SQL for performance - this query processes 1M+ rows
+# The ORM version is 10x slower due to object overhead
+result = await session.execute(
+    text("SELECT user_id, COUNT(*) FROM posts GROUP BY user_id")
+)
+```
+
+### Scenario 2: Type Safety vs Flexibility
+
+**Conflict:** Strict type hints vs need for flexibility
+
+**Resolution:**
+- Prefer type safety
+- Use Union types or TypeVar for flexibility
+- Avoid `Any` unless absolutely necessary
+
+**Example:**
+
+```python
+# Type safety requires specific types
+# Flexibility needs generic handling
+# Resolution: Use generics
+
+# ✅ GOOD - Type-safe and flexible
+from typing import TypeVar, Generic
+
+T = TypeVar("T")
+
+class Repository(Generic[T]):
+    async def get_by_id(self, id: int) -> Optional[T]:
+        pass
+```
+
+### Scenario 3: Async vs Synchronous Code
+
+**Conflict:** Some libraries only have sync versions
+
+**Resolution:**
+- Prefer async when possible
+- Wrap sync code in executor if needed
+- Document why sync code is used
+
+**Example:**
+
+```python
+# Async preferred, but library is sync-only
+# Resolution: Use executor, document
+
+# ✅ GOOD - Wrapped sync code
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
+
+executor = ThreadPoolExecutor(max_workers=4)
+
+async def process_with_sync_library(data: dict) -> dict:
+    """
+    Process data using sync-only library.
+    
+    Note: Library doesn't support async, so we use executor
+    to avoid blocking the event loop.
+    """
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(
+        executor,
+        sync_library.process,
+        data
+    )
+```
+
+### Scenario 4: Logging vs Performance
+
+**Conflict:** Logging guidelines vs performance requirements
+
+**Resolution:**
+- Log errors and critical operations
+- Use appropriate log levels
+- Consider async logging for high-volume scenarios
+
+**Example:**
+
+```python
+# Logging guidelines require logging
+# Performance requires minimal overhead
+# Resolution: Use appropriate log levels
+
+# ✅ GOOD - Log errors, skip verbose logging in hot path
+async def process_request(request: Request) -> Response:
+    # Don't log every request (performance)
+    # But log errors (required)
+    try:
+        result = await process_data(request.data)
+        return Response(data=result)
+    except Exception as e:
+        logger.error("Request processing failed", exc_info=True)  # Required
+        raise
+```
+
+## Exception Documentation
+
+When deviating from guidelines, document why:
+
+### Format
+
+```python
+# EXCEPTION: [Rule Name]
+# Reason: [Why exception is needed]
+# Duration: [Temporary or permanent]
+# TODO: [If temporary, what needs to happen]
+
+# Example:
+# EXCEPTION: Code Style Guidelines - Line Length
+# Reason: Long URL cannot be broken without breaking functionality
+# Duration: Permanent (external API URL)
+# TODO: N/A
+long_url = "https://very-long-external-api-url-that-cannot-be-broken.com/endpoint"
+```
+
+### When to Document Exceptions
+
+1. **Temporary Workarounds** - Document and add TODO
+2. **Performance Requirements** - Explain the trade-off
+3. **External Constraints** - Document the limitation
+4. **Legacy Code** - Note why it can't be changed yet
+
+## Decision Process
+
+### Step 1: Identify the Conflict
+
+- What rules are conflicting?
+- What are the trade-offs?
+- What is the impact?
+
+### Step 2: Evaluate Options
+
+- Can both rules be satisfied?
+- What's the best compromise?
+- What are the consequences?
+
+### Step 3: Make Decision
+
+- Choose based on priority hierarchy
+- Document the decision
+- Consider team input
+
+### Step 4: Document Exception
+
+- Add comment explaining exception
+- Reference this document if needed
+- Update guidelines if pattern emerges
+
+## Team Consensus
+
+For significant conflicts:
+
+1. **Discuss in PR Comments** - Get team input
+2. **Escalate to Team Lead** - For architectural decisions
+3. **Update Guidelines** - If pattern becomes common
+4. **Document Decision** - For future reference
+
+## Updating Guidelines
+
+If exceptions become common:
+
+1. **Identify Pattern** - Is this exception happening frequently?
+2. **Evaluate Rule** - Is the rule too strict or wrong?
+3. **Propose Change** - Update the guideline
+4. **Team Review** - Get consensus on change
+5. **Update Documentation** - Reflect new guideline
+
+## Examples
+
+### Example 1: Temporary Exception
+
+```python
+# EXCEPTION: Error Handling Patterns
+# Reason: External API has inconsistent error responses
+# Duration: Temporary - until external API v2 is released (Q2 2024)
+# TODO: Update when external API v2 is available
+try:
+    response = await external_api.get_data()
+except Exception as e:
+    # External API sometimes returns 200 with error in body
+    # This is a known issue they're fixing in v2
+    if "error" in str(e).lower():
+        raise ExternalServiceError("External API error")
+    raise
+```
+
+### Example 2: Performance Exception
+
+```python
+# EXCEPTION: Code Style Guidelines - Function Complexity
+# Reason: Performance-critical path requires optimized algorithm
+# Duration: Permanent
+# TODO: N/A
+# Note: This function is called millions of times per day
+# Optimizations are necessary for acceptable performance
+def optimized_calculation(data: List[float]) -> float:
+    # Complex algorithm for performance
+    # See performance-guidelines.mdc for optimization rationale
+    pass
+```
+
+### Example 3: External Constraint
+
+```python
+# EXCEPTION: Type Hints - Using Any
+# Reason: Third-party library returns untyped data
+# Duration: Until library adds type stubs
+# TODO: Create type stubs for library or wait for official types
+from typing import Any
+
+def process_third_party_data(data: Any) -> dict:  # Any required by library
+    """Process data from third-party library without type stubs."""
+    # Library doesn't provide type hints yet
+    # We validate data structure at runtime
+    if not isinstance(data, dict):
+        raise ValidationError("Expected dict")
+    return data
+```
+
+## Remember
+
+- **Security First** - Security rules always win
+- **Document Exceptions** - Explain why deviation is needed
+- **Team Consensus** - Get input for significant conflicts
+- **Update Guidelines** - If exceptions become patterns
+- **Be Pragmatic** - Rules are guidelines, not absolutes

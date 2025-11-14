@@ -1,0 +1,315 @@
+---
+description: Git workflow, commit message conventions, and version control best practices
+globs:
+  - "**/.git/**"
+  - "**/.gitignore"
+alwaysApply: true
+---
+
+# Git Workflow Guidelines
+
+## Commit Message Format
+
+Follow the [Conventional Commits](https://www.conventionalcommits.org/) specification for consistent commit messages.
+
+### Format
+
+```
+<type>(<scope>): <subject>
+
+<body>
+
+<footer>
+```
+
+### Types
+
+- **`feat`**: A new feature
+- **`fix`**: A bug fix
+- **`docs`**: Documentation only changes
+- **`style`**: Code style changes (formatting, missing semicolons, etc.)
+- **`refactor`**: Code refactoring without bug fixes or features
+- **`perf`**: Performance improvements
+- **`test`**: Adding or updating tests
+- **`chore`**: Maintenance tasks, dependency updates
+- **`build`**: Build system or external dependencies
+- **`ci`**: CI/CD configuration changes
+
+### Examples
+
+```bash
+# Feature
+feat(auth): add JWT token refresh mechanism
+
+# Bug fix
+fix(api): resolve user profile null reference error
+
+# Breaking change
+feat(api)!: change user endpoint response format
+
+BREAKING CHANGE: The user endpoint now returns nested user object instead of flat structure
+
+# Multiple changes
+feat(workflows): add workflow execution history
+
+- Add history tracking in workflow service
+- Create history API endpoint
+- Update UI to display execution history
+```
+
+### Scope
+
+Use scope to indicate which part of the codebase is affected:
+
+- `api`: API routes and handlers
+- `auth`: Authentication and authorization
+- `ui`: Frontend components
+- `store`: State management (Zustand stores)
+- `service`: Service layer functions
+- `utils`: Utility functions
+- `config`: Configuration files
+- `deps`: Dependencies
+
+### Subject
+
+- Use imperative mood ("add" not "added" or "adds")
+- First line should be 50 characters or less
+- Don't end with a period
+- Be specific and descriptive
+
+### Body (Optional)
+
+- Explain the "what" and "why" vs "how"
+- Wrap at 72 characters
+- Can include multiple paragraphs
+
+### Footer (Optional)
+
+- Reference issues: `Closes #123`, `Fixes #456`
+- Breaking changes: `BREAKING CHANGE: <description>`
+
+## Branch Naming
+
+### Format
+
+```
+<type>/<description>
+```
+
+### Types
+
+- `feature/`: New features
+- `fix/`: Bug fixes
+- `hotfix/`: Critical production fixes
+- `refactor/`: Code refactoring
+- `docs/`: Documentation updates
+- `test/`: Test additions/updates
+
+### Examples
+
+```bash
+feature/user-profile-editor
+fix/api-authentication-error
+hotfix/critical-data-loss-bug
+refactor/workflow-service-layer
+```
+
+## Commit Best Practices
+
+### ✅ DO
+
+- Make atomic commits (one logical change per commit)
+- Write clear, descriptive commit messages
+- Commit frequently (small, incremental changes)
+- Test before committing
+- Review your changes with `git diff` before committing
+
+### ❌ DON'T
+
+- Commit commented-out code
+- Commit debugging code or console.logs
+- Commit with lint errors (see `no-hiding.mdc`)
+- Mix unrelated changes in one commit
+- Commit secrets or sensitive data
+- Force push to main/master branch
+
+## Workflow
+
+### 1. Create Feature Branch
+
+```bash
+git checkout -b feature/my-new-feature
+```
+
+### 2. Make Changes
+
+- Write code following all guidelines
+- Ensure no lint errors
+- Test your changes
+
+### 3. Stage Changes
+
+```bash
+# Review what you're committing
+git status
+git diff
+
+# Stage specific files
+git add path/to/file.ts
+
+# Or stage all changes
+git add .
+```
+
+### 4. Commit
+
+```bash
+git commit -m "feat(scope): descriptive message"
+```
+
+### 5. Push and Create PR
+
+```bash
+git push origin feature/my-new-feature
+```
+
+Then create a Pull Request with:
+- Clear title matching commit message format
+- Description explaining the change
+- Reference to related issues
+- Screenshots for UI changes
+
+## Pull Request Guidelines
+
+### PR Title
+
+Follow the same format as commit messages:
+
+```
+feat(auth): add password reset functionality
+```
+
+### PR Description Template
+
+```markdown
+## Description
+Brief description of what this PR does.
+
+## Type of Change
+- [ ] Bug fix
+- [ ] New feature
+- [ ] Breaking change
+- [ ] Documentation update
+
+## Testing
+- [ ] Tests pass locally
+- [ ] Manual testing completed
+- [ ] Edge cases considered
+
+## Checklist
+- [ ] Code follows style guidelines
+- [ ] No lint errors
+- [ ] Self-review completed
+- [ ] Comments added for complex logic
+- [ ] Documentation updated if needed
+```
+
+## Handling Conflicts
+
+### When Your Branch is Behind
+
+```bash
+# Fetch latest changes
+git fetch origin
+
+# Rebase your branch on main
+git checkout feature/my-feature
+git rebase origin/main
+
+# Resolve conflicts if any
+# Then continue rebase
+git rebase --continue
+
+# Force push (only on feature branches)
+git push --force-with-lease origin feature/my-feature
+```
+
+## Git Ignore
+
+Ensure these are in `.gitignore`:
+
+```
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Testing
+coverage/
+.nyc_output
+
+# Production
+build/
+dist/
+.next/
+out/
+
+# Environment variables
+.env
+.env.local
+.env*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Temporary files
+*.tmp
+.cache/
+```
+
+## Common Commands
+
+```bash
+# Check status
+git status
+
+# View changes
+git diff
+git diff --staged
+
+# View commit history
+git log --oneline --graph
+
+# Undo last commit (keep changes)
+git reset --soft HEAD~1
+
+# Undo last commit (discard changes)
+git reset --hard HEAD~1
+
+# Stash changes
+git stash
+git stash pop
+
+# View stashes
+git stash list
+```
+
+## Remember
+
+- **Small, frequent commits** are better than large, infrequent ones
+- **Clear commit messages** help future you and your team
+- **Test before committing** to avoid broken commits
+- **Review your changes** with `git diff` before committing
+- **Never commit secrets** or sensitive data

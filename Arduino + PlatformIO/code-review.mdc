@@ -1,0 +1,316 @@
+---
+description: Code review checklist and best practices for embedded systems development
+globs:
+  - "**/*.cpp"
+  - "**/*.c"
+  - "**/*.h"
+alwaysApply: true
+---
+
+# Code Review Guidelines
+
+## Review Philosophy
+
+Code review for embedded systems focuses on:
+1. **Reliability** - Ensuring code works correctly on hardware
+2. **Resource Efficiency** - Memory and CPU usage within constraints
+3. **Real-Time Safety** - Timing constraints and interrupt handling
+4. **Hardware Compatibility** - Correct hardware interface usage
+5. **Maintainability** - Code clarity and documentation
+
+## Review Checklist
+
+### Functionality
+
+- [ ] Does the code work as intended on hardware?
+- [ ] Are edge cases handled (buffer overflow, underflow)?
+- [ ] Are error cases handled properly?
+- [ ] Is the code complete (no TODOs or placeholders)?
+- [ ] Are there any obvious bugs or logic errors?
+- [ ] Has it been tested on actual hardware?
+
+### Hardware Safety
+
+- [ ] Are pin assignments correct and documented?
+- [ ] Are voltage levels appropriate (3.3V vs 5V)?
+- [ ] Are pull-up/pull-down resistors configured correctly?
+- [ ] Is there any risk of short circuits or damage?
+- [ ] Are timing constraints met (setup/hold times)?
+- [ ] Is power consumption acceptable?
+
+### Memory Management
+
+- [ ] Is memory usage within limits?
+- [ ] Are there any memory leaks (even in error paths)?
+- [ ] Is PROGMEM used for constant strings?
+- [ ] Are buffers sized appropriately (not too large/small)?
+- [ ] Is stack usage reasonable (no risk of overflow)?
+- [ ] Is dynamic allocation avoided where possible?
+
+### Real-Time Constraints
+
+- [ ] Are ISRs minimal (< 50us typically)?
+- [ ] Are blocking operations avoided in ISRs?
+- [ ] Are critical sections properly protected?
+- [ ] Is interrupt priority configured correctly?
+- [ ] Are timing-sensitive operations handled correctly?
+- [ ] Is watchdog timer fed appropriately?
+
+### Code Quality
+
+- [ ] Does the code follow style guidelines?
+- [ ] Are variable names descriptive (no abbreviations)?
+- [ ] Is the code readable and maintainable?
+- [ ] Are there any compiler warnings?
+- [ ] Is there code duplication that should be refactored?
+- [ ] Are magic numbers replaced with named constants?
+
+### Architecture
+
+- [ ] Does the code follow architectural patterns?
+- [ ] Is hardware abstraction used appropriately?
+- [ ] Is the code properly organized (correct file structure)?
+- [ ] Are dependencies clear and minimal?
+- [ ] Is platform-specific code isolated?
+
+### Error Handling
+
+- [ ] Are errors handled appropriately?
+- [ ] Are error codes used consistently?
+- [ ] Is error recovery implemented?
+- [ ] Are errors logged appropriately (if logging enabled)?
+- [ ] Does the system fail safely?
+
+### Performance
+
+- [ ] Is the code optimized appropriately?
+- [ ] Are expensive operations avoided in hot paths?
+- [ ] Is floating-point math minimized on 8-bit MCUs?
+- [ ] Are lookups used instead of calculations where possible?
+- [ ] Is DMA used for bulk transfers when available?
+
+### Security
+
+- [ ] Are inputs validated (bounds checking)?
+- [ ] Are secrets properly handled (not hardcoded)?
+- [ ] Is sensitive data not logged?
+- [ ] Are communication protocols secure?
+- [ ] Is firmware update mechanism secure?
+
+### Documentation
+
+- [ ] Are hardware assumptions documented?
+- [ ] Are pin connections documented?
+- [ ] Are timing constraints documented?
+- [ ] Are complex algorithms explained?
+- [ ] Is the code self-documenting?
+
+### Testing
+
+- [ ] Are unit tests present (if applicable)?
+- [ ] Has the code been tested on hardware?
+- [ ] Are edge cases tested?
+- [ ] Are error conditions tested?
+- [ ] Is test coverage adequate?
+
+## Review Process
+
+### For Authors
+
+1. **Self-Review First**
+   - Review your own code before requesting review
+   - Run `pio check` to verify no warnings
+   - Test on hardware
+   - Check memory usage
+   - Verify timing constraints
+
+2. **Prepare PR**
+   - Write clear PR description
+   - Document hardware requirements
+   - Note pin configuration changes
+   - Include test results
+   - Reference related issues
+   - Add scope labels (hal, drivers, sensors, etc.)
+
+3. **Respond to Feedback**
+   - Be open to feedback
+   - Ask questions if unclear
+   - Make requested changes promptly
+   - Re-test on hardware after changes
+   - Update PR description if needed
+
+### For Reviewers
+
+1. **Understand Context**
+   - Read PR description carefully
+   - Understand hardware requirements
+   - Check related issues
+   - Review code in context
+
+2. **Review Thoroughly**
+   - Check all checklist items
+   - Test on hardware if possible
+   - Verify memory and timing constraints
+   - Look for edge cases
+
+3. **Provide Constructive Feedback**
+   - Be specific about issues
+   - Suggest solutions, not just problems
+   - Explain why changes are needed
+   - Be respectful and professional
+
+4. **Approve When Ready**
+   - Only approve when all concerns addressed
+   - Verify hardware testing completed
+   - Ensure no warnings remain
+   - Confirm documentation is adequate
+
+## Common Issues to Look For
+
+### Memory Issues
+
+```cpp
+// ❌ BAD - Potential buffer overflow
+void processData(uint8_t* data, size_t length) {
+  uint8_t buffer[64];
+  memcpy(buffer, data, length);  // No bounds check
+}
+
+// ✅ GOOD - Bounds checking
+void processData(uint8_t* data, size_t length) {
+  uint8_t buffer[64];
+  size_t copyLen = min(length, sizeof(buffer));
+  memcpy(buffer, data, copyLen);
+}
+```
+
+### Interrupt Safety
+
+```cpp
+// ❌ BAD - Non-atomic operation in ISR
+volatile uint32_t counter = 0;
+ISR(TIMER1_COMPA_vect) {
+  counter++;  // Not atomic on 8-bit MCU
+}
+
+// ✅ GOOD - Atomic operation
+volatile uint32_t counter = 0;
+ISR(TIMER1_COMPA_vect) {
+  // Use atomic increment or disable interrupts
+  noInterrupts();
+  counter++;
+  interrupts();
+}
+```
+
+### Timing Issues
+
+```cpp
+// ❌ BAD - Blocking delay in main loop
+void loop() {
+  readSensor();
+  delay(1000);  // Blocks for 1 second
+  updateDisplay();
+}
+
+// ✅ GOOD - Non-blocking timing
+void loop() {
+  static uint32_t lastRead = 0;
+  if (millis() - lastRead >= 1000) {
+    readSensor();
+    lastRead = millis();
+  }
+  updateDisplay();
+}
+```
+
+### Hardware Assumptions
+
+```cpp
+// ❌ BAD - Platform-specific code without guards
+void initGPIO() {
+  pinMode(21, OUTPUT);  // ESP32 pin, won't work on AVR
+}
+
+// ✅ GOOD - Platform abstraction
+void initGPIO() {
+  #ifdef ESP32
+    pinMode(21, OUTPUT);
+  #elif defined(ARDUINO_AVR_UNO)
+    pinMode(13, OUTPUT);
+  #endif
+}
+```
+
+## Review Comments
+
+### Good Review Comments
+
+```cpp
+// ✅ GOOD - Specific and actionable
+// Consider adding bounds checking here. If length > 256, 
+// this will overflow the buffer. Suggest:
+// size_t copyLen = min(length, sizeof(buffer));
+
+// ✅ GOOD - Explains why
+// This delay blocks the main loop. Consider using 
+// non-blocking timing pattern to keep system responsive.
+
+// ✅ GOOD - Suggests solution
+// This ISR is too long (~150us measured). Consider 
+// moving heavy processing to main loop and using flags.
+```
+
+### Bad Review Comments
+
+```cpp
+// ❌ BAD - Vague
+// This doesn't look right.
+
+// ❌ BAD - Not constructive
+// This is wrong.
+
+// ❌ BAD - No explanation
+// Use PROGMEM here.
+```
+
+## Hardware Testing Checklist
+
+When reviewing hardware-related code:
+
+- [ ] Code tested on actual hardware (not just simulator)
+- [ ] Tested on all target platforms
+- [ ] Pin connections verified
+- [ ] Timing verified with oscilloscope/logic analyzer
+- [ ] Power consumption measured
+- [ ] Memory usage verified
+- [ ] Error conditions tested (disconnect sensor, etc.)
+- [ ] Long-term stability tested (24+ hours)
+
+## Approval Criteria
+
+Code should be approved when:
+
+- ✅ All review comments addressed
+- ✅ No compiler warnings
+- ✅ Tested on hardware
+- ✅ Memory usage acceptable
+- ✅ Timing constraints met
+- ✅ Error handling complete
+- ✅ Documentation adequate
+- ✅ Follows all guidelines
+- ✅ No security issues
+- ✅ Code is maintainable
+
+## Best Practices Summary
+
+1. **Hardware First**: Always verify hardware compatibility
+2. **Memory Awareness**: Check memory usage and constraints
+3. **Timing Safety**: Verify real-time constraints are met
+4. **Error Handling**: Ensure robust error handling
+5. **Documentation**: Verify hardware assumptions documented
+6. **Testing**: Require hardware testing before approval
+7. **Constructive Feedback**: Provide specific, actionable comments
+8. **No Warnings**: Never approve code with warnings
+9. **Security**: Check for security vulnerabilities
+10. **Maintainability**: Ensure code is readable and maintainable

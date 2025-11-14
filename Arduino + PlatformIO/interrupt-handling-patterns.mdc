@@ -1,0 +1,938 @@
+---
+description: Interrupt handling patterns and real-time programming guidelines for embedded systems
+globs:
+  - "**/*.cpp"
+  - "**/*.c"
+  - "**/*.h"
+  - "**/src/**"
+alwaysApply: true
+---
+
+# Interrupt Handling & Real-Time Patterns
+
+## Overview
+
+Interrupts are fundamental to responsive embedded systems but require careful handling to avoid race conditions, priority inversions, and timing violations. This document provides patterns and guidelines for safe, efficient interrupt handling and real-time programming.
+
+## Interrupt Safety Principles
+
+### Critical Sections
+
+```cpp
+// Basic critical section macros
+#define CRITICAL_SECTION_BEGIN() noInterrupts()
+#define CRITICAL_SECTION_END() interrupts()
+
+// RAII-style critical section
+class CriticalSection {
+private:
+    uint8_t savedSREG;
+    
+public:
+    CriticalSection() {
+        #ifdef __AVR__
+        savedSREG = SREG;
+        cli();  // Clear interrupt flag
+        #elif defined(ESP32)
+        savedSREG = 0;  // Not used
+        portDISABLE_INTERRUPTS();
+        #else
+        noInterrupts();
+        #endif
+    }
+    
+    ~CriticalSection() {
+        #ifdef __AVR__
+        SREG = savedSREG;  // Restore interrupt state
+        #elif defined(ESP32)
+        portENABLE_INTERRUPTS();
+        #else
+        interrupts();
+        #endif
+    }
+    
+    // Prevent copying
+    CriticalSection(const CriticalSection&) = delete;
+    CriticalSection& operator=(const CriticalSection&) = delete;
+};
+
+// Usage
+void updateSharedData() {
+    CriticalSection cs;  // Interrupts disabled
+    // ... modify shared data ...
+    // Interrupts automatically re-enabled when cs goes out of scope
+}
+
+// Nested critical sections
+class NestedCriticalSection {
+private:
+    static uint8_t nestLevel;
+    bool wasEnabled;
+    
+public:
+    NestedCriticalSection() {
+        wasEnabled = (nestLevel == 0) && interruptsEnabled();
+        if (nestLevel == 0) {
+            noInterrupts();
+        }
+        nestLevel++;
+    }
+    
+    ~NestedCriticalSection() {
+        nestLevel--;
+        if (nestLevel == 0 && wasEnabled) {
+            interrupts();
+        }
+    }
+    
+private:
+    static bool interruptsEnabled() {
+        #ifdef __AVR__
+        return SREG & (1 << SREG_I);
+        #else
+        return true;  // Platform-specific
+        #endif
+    }
+};
+
+uint8_t NestedCriticalSection::nestLevel = 0;
+```
+
+### Volatile Variables
+
+```cpp
+// Proper use of volatile for ISR communication
+class InterruptSafeData {
+private:
+    volatile uint32_t counter;
+    volatile bool flag;
+    volatile uint8_t buffer[64];
+    volatile size_t bufferIndex;
+    
+public:
+    // Read with interrupts disabled for multi-byte values
+    uint32_t readCounter() {
+        CriticalSection cs;
+        return counter;
+    }
+    
+    // Atomic operations for single-byte values
+    bool checkAndClearFlag() {
+        if (!flag) return false;
+        
+        CriticalSection cs;
+        bool result = flag;
+        flag = false;
+        return result;
+    }
+    
+    // ISR-safe ring buffer operations
+    bool pushFromISR(uint8_t data) {
+        size_t next = (bufferIndex + 1) & 63;  // Power of 2 size
+        if (next == readIndex) return false;   // Full
+        
+        buffer[bufferIndex] = data;
+        bufferIndex = next;
+        return true;
+    }
+    
+private:
+    volatile size_t readIndex = 0;
+};
+
+// Memory barriers for proper ordering
+#ifdef __arm__
+    #define MEMORY_BARRIER() __DMB()
+#else
+    #define MEMORY_BARRIER() __asm__ __volatile__("" ::: "memory")
+#endif
+```
+
+## ISR Design Patterns
+
+### Minimal ISR Pattern
+
+```cpp
+// ISR should only capture data and set flags
+volatile bool adcDataReady = false;
+volatile uint16_t adcValue = 0;
+
+#ifdef __AVR__
+ISR(ADC_vect) {
+    adcValue = ADC;  // Read ADC value
+    adcDataReady = true;
+}
+#endif
+
+// Deferred processing in main loop
+void processAdcData() {
+    if (!adcDataReady) return;
+    
+    uint16_t value;
+    {
+        CriticalSection cs;
+        value = adcValue;
+        adcDataReady = false;
+    }
+    
+    // Heavy processing outside ISR
+    float voltage = (value * 5.0) / 1023.0;
+    updateDisplay(voltage);
+}
+```
+
+### ISR Timing Constraints
+
+```cpp
+// ISR execution time monitoring
+class ISRProfiler {
+private:
+    struct ISRStats {
+        const char* name;
+        uint32_t maxDuration;
+        uint32_t totalCalls;
+        uint32_t violations;  // Times exceeded limit
+    };
+    
+    static constexpr size_t MAX_ISRS = 8;
+    static ISRStats stats[MAX_ISRS];
+    static size_t isrCount;
+    
+public:
+    class ScopedTimer {
+    private:
+        ISRStats* stat;
+        uint32_t startTime;
+        uint32_t limit;
+        
+    public:
+        ScopedTimer(const char* isrName, uint32_t limitMicros) {
+            stat = findOrCreate(isrName);
+            limit = limitMicros;
+            startTime = micros();
+        }
+        
+        ~ScopedTimer() {
+            uint32_t duration = micros() - startTime;
+            
+            stat->totalCalls++;
+            if (duration > stat->maxDuration) {
+                stat->maxDuration = duration;
+            }
+            if (duration > limit) {
+                stat->violations++;
+            }
+        }
+        
+    private:
+        static ISRStats* findOrCreate(const char* name) {
+            for (size_t i = 0; i < isrCount; i++) {
+                if (strcmp(stats[i].name, name) == 0) {
+                    return &stats[i];
+                }
+            }
+            
+            if (isrCount < MAX_ISRS) {
+                stats[isrCount] = {name, 0, 0, 0};
+                return &stats[isrCount++];
+            }
+            
+            return &stats[0];  // Fallback
+        }
+    };
+    
+    static void report() {
+        Serial.println(F("\n=== ISR Profile ==="));
+        for (size_t i = 0; i < isrCount; i++) {
+            Serial.print(stats[i].name);
+            Serial.print(F(": Max="));
+            Serial.print(stats[i].maxDuration);
+            Serial.print(F("us, Calls="));
+            Serial.print(stats[i].totalCalls);
+            Serial.print(F(", Violations="));
+            Serial.println(stats[i].violations);
+        }
+    }
+};
+
+// Usage in ISR
+void IRAM_ATTR timerISR() {
+    ISRProfiler::ScopedTimer timer("Timer1", 50);  // 50us limit
+    // ISR code here...
+}
+```
+
+### State Machine in ISR
+
+```cpp
+// Fast state machine for protocol decoding
+class ProtocolDecoder {
+private:
+    enum State : uint8_t {
+        IDLE, START_BIT, DATA_BITS, STOP_BIT
+    };
+    
+    volatile State state = IDLE;
+    volatile uint8_t bitCount = 0;
+    volatile uint8_t dataByte = 0;
+    volatile bool dataReady = false;
+    
+public:
+    // Called from pin change ISR
+    void IRAM_ATTR handlePinChange(bool pinState) {
+        switch (state) {
+            case IDLE:
+                if (!pinState) {  // Start bit detected (low)
+                    state = START_BIT;
+                    bitCount = 0;
+                    dataByte = 0;
+                }
+                break;
+                
+            case START_BIT:
+                state = DATA_BITS;
+                break;
+                
+            case DATA_BITS:
+                dataByte |= (pinState ? 1 : 0) << bitCount;
+                if (++bitCount >= 8) {
+                    state = STOP_BIT;
+                }
+                break;
+                
+            case STOP_BIT:
+                if (pinState) {  // Valid stop bit (high)
+                    dataReady = true;
+                }
+                state = IDLE;
+                break;
+        }
+    }
+    
+    bool getData(uint8_t& byte) {
+        if (!dataReady) return false;
+        
+        CriticalSection cs;
+        byte = dataByte;
+        dataReady = false;
+        return true;
+    }
+};
+```
+
+## Timer Management
+
+### Hardware Timer Abstraction
+
+```cpp
+// Platform-agnostic timer interface
+class HardwareTimer {
+public:
+    using TimerCallback = void (*)();
+    
+    virtual bool init(uint32_t frequencyHz, TimerCallback callback) = 0;
+    virtual void start() = 0;
+    virtual void stop() = 0;
+    virtual void setPeriod(uint32_t microseconds) = 0;
+};
+
+#ifdef __AVR__
+// AVR Timer implementation
+class AVRTimer1 : public HardwareTimer {
+private:
+    static TimerCallback callback;
+    
+public:
+    bool init(uint32_t frequencyHz, TimerCallback cb) override {
+        callback = cb;
+        
+        // Configure Timer1 for CTC mode
+        TCCR1A = 0;
+        TCCR1B = (1 << WGM12);  // CTC mode
+        
+        // Calculate prescaler and compare value
+        uint32_t cycles = F_CPU / frequencyHz;
+        uint16_t prescaler = 1;
+        uint8_t prescalerBits = 1;
+        
+        if (cycles > 65535) {
+            prescaler = 64;
+            prescalerBits = 3;
+            cycles /= 64;
+        }
+        
+        OCR1A = cycles - 1;
+        TCCR1B |= prescalerBits;
+        
+        // Enable interrupt
+        TIMSK1 |= (1 << OCIE1A);
+        
+        return true;
+    }
+    
+    void start() override {
+        TCNT1 = 0;
+        TIMSK1 |= (1 << OCIE1A);
+    }
+    
+    void stop() override {
+        TIMSK1 &= ~(1 << OCIE1A);
+    }
+    
+    void setPeriod(uint32_t microseconds) override {
+        uint32_t cycles = (F_CPU / 1000000) * microseconds;
+        OCR1A = min(cycles - 1, 65535);
+    }
+    
+    static void handleInterrupt() {
+        if (callback) callback();
+    }
+};
+
+AVRTimer1::TimerCallback AVRTimer1::callback = nullptr;
+
+ISR(TIMER1_COMPA_vect) {
+    AVRTimer1::handleInterrupt();
+}
+#endif
+
+#ifdef ESP32
+// ESP32 Timer implementation
+class ESP32Timer : public HardwareTimer {
+private:
+    hw_timer_t* timer = nullptr;
+    static void IRAM_ATTR onTimer() {
+        // Timer callback implementation
+    }
+    
+public:
+    bool init(uint32_t frequencyHz, TimerCallback cb) override {
+        timer = timerBegin(0, 80, true);  // Timer 0, prescaler 80, count up
+        timerAttachInterrupt(timer, &onTimer, true);
+        timerAlarmWrite(timer, 1000000 / frequencyHz, true);
+        return true;
+    }
+    
+    void start() override {
+        timerAlarmEnable(timer);
+    }
+    
+    void stop() override {
+        timerAlarmDisable(timer);
+    }
+    
+    void setPeriod(uint32_t microseconds) override {
+        timerAlarmWrite(timer, microseconds, true);
+    }
+};
+#endif
+```
+
+### Software Timer Management
+
+```cpp
+// Efficient software timer system
+template<size_t MAX_TIMERS>
+class SoftwareTimerManager {
+private:
+    struct Timer {
+        uint32_t interval;
+        uint32_t nextTrigger;
+        void (*callback)();
+        bool active;
+        bool periodic;
+    };
+    
+    Timer timers[MAX_TIMERS];
+    uint32_t nextWakeTime;
+    
+public:
+    SoftwareTimerManager() : nextWakeTime(UINT32_MAX) {
+        for (auto& timer : timers) {
+            timer.active = false;
+        }
+    }
+    
+    int createTimer(uint32_t intervalMs, void (*callback)(), bool periodic = true) {
+        for (int i = 0; i < MAX_TIMERS; i++) {
+            if (!timers[i].active) {
+                timers[i] = {intervalMs, millis() + intervalMs, callback, true, periodic};
+                updateNextWakeTime();
+                return i;
+            }
+        }
+        return -1;  // No free timers
+    }
+    
+    void deleteTimer(int id) {
+        if (id >= 0 && id < MAX_TIMERS) {
+            timers[id].active = false;
+            updateNextWakeTime();
+        }
+    }
+    
+    void process() {
+        uint32_t now = millis();
+        if ((int32_t)(now - nextWakeTime) < 0) return;
+        
+        nextWakeTime = UINT32_MAX;
+        
+        for (auto& timer : timers) {
+            if (!timer.active) continue;
+            
+            if ((int32_t)(now - timer.nextTrigger) >= 0) {
+                timer.callback();
+                
+                if (timer.periodic) {
+                    timer.nextTrigger += timer.interval;
+                } else {
+                    timer.active = false;
+                }
+            }
+            
+            if (timer.active && (int32_t)(timer.nextTrigger - nextWakeTime) < 0) {
+                nextWakeTime = timer.nextTrigger;
+            }
+        }
+    }
+    
+    uint32_t getNextWakeTime() const {
+        return nextWakeTime;
+    }
+    
+private:
+    void updateNextWakeTime() {
+        nextWakeTime = UINT32_MAX;
+        for (const auto& timer : timers) {
+            if (timer.active && (int32_t)(timer.nextTrigger - nextWakeTime) < 0) {
+                nextWakeTime = timer.nextTrigger;
+            }
+        }
+    }
+};
+```
+
+## Atomic Operations
+
+```cpp
+// Atomic operations for different data sizes
+class AtomicOps {
+public:
+    // 8-bit atomic read/write (naturally atomic on most MCUs)
+    static uint8_t read8(volatile uint8_t* ptr) {
+        return *ptr;
+    }
+    
+    static void write8(volatile uint8_t* ptr, uint8_t value) {
+        *ptr = value;
+    }
+    
+    // 16-bit atomic operations
+    static uint16_t read16(volatile uint16_t* ptr) {
+        CriticalSection cs;
+        return *ptr;
+    }
+    
+    static void write16(volatile uint16_t* ptr, uint16_t value) {
+        CriticalSection cs;
+        *ptr = value;
+    }
+    
+    // 32-bit atomic operations
+    static uint32_t read32(volatile uint32_t* ptr) {
+        CriticalSection cs;
+        return *ptr;
+    }
+    
+    static void write32(volatile uint32_t* ptr, uint32_t value) {
+        CriticalSection cs;
+        *ptr = value;
+    }
+    
+    // Atomic increment/decrement
+    static uint32_t increment(volatile uint32_t* ptr) {
+        CriticalSection cs;
+        return ++(*ptr);
+    }
+    
+    static uint32_t decrement(volatile uint32_t* ptr) {
+        CriticalSection cs;
+        return --(*ptr);
+    }
+    
+    // Compare and swap
+    static bool compareAndSwap(volatile uint32_t* ptr, uint32_t expected, uint32_t desired) {
+        CriticalSection cs;
+        if (*ptr == expected) {
+            *ptr = desired;
+            return true;
+        }
+        return false;
+    }
+    
+    // Atomic bit operations
+    static void setBit(volatile uint8_t* ptr, uint8_t bit) {
+        CriticalSection cs;
+        *ptr |= (1 << bit);
+    }
+    
+    static void clearBit(volatile uint8_t* ptr, uint8_t bit) {
+        CriticalSection cs;
+        *ptr &= ~(1 << bit);
+    }
+    
+    static bool testAndSetBit(volatile uint8_t* ptr, uint8_t bit) {
+        CriticalSection cs;
+        bool wasSet = (*ptr & (1 << bit)) != 0;
+        *ptr |= (1 << bit);
+        return wasSet;
+    }
+};
+
+// Lock-free single producer, single consumer queue
+template<typename T, size_t SIZE>
+class SPSCQueue {
+    static_assert((SIZE & (SIZE - 1)) == 0, "Size must be power of 2");
+    
+private:
+    T buffer[SIZE];
+    volatile size_t head = 0;
+    volatile size_t tail = 0;
+    
+public:
+    bool push(const T& item) {
+        size_t next = (head + 1) & (SIZE - 1);
+        if (next == tail) return false;  // Full
+        
+        buffer[head] = item;
+        MEMORY_BARRIER();
+        head = next;
+        return true;
+    }
+    
+    bool pop(T& item) {
+        if (tail == head) return false;  // Empty
+        
+        item = buffer[tail];
+        MEMORY_BARRIER();
+        tail = (tail + 1) & (SIZE - 1);
+        return true;
+    }
+};
+```
+
+## Interrupt Priority Management
+
+```cpp
+// Platform-specific interrupt priority
+class InterruptPriority {
+public:
+    enum Priority {
+        LOWEST = 0,
+        LOW = 1,
+        NORMAL = 2,
+        HIGH = 3,
+        HIGHEST = 4,
+        CRITICAL = 5
+    };
+    
+    static void setPriority(uint8_t interruptNum, Priority priority) {
+        #ifdef ESP32
+        // ESP32 has 7 priority levels (1-7, where 1 is lowest)
+        esp_intr_set_priority(interruptNum, priority + 1);
+        #elif defined(STM32)
+        // STM32 NVIC priority setting
+        NVIC_SetPriority(static_cast<IRQn_Type>(interruptNum), 
+                        15 - priority * 3);  // Map to 0-15 range
+        #endif
+        // AVR doesn't support interrupt priorities
+    }
+    
+    static void enableNested() {
+        #ifdef __AVR__
+        // AVR: Re-enable interrupts in ISR (use with caution!)
+        sei();
+        #elif defined(ESP32)
+        // ESP32: Already supports nested interrupts
+        #endif
+    }
+};
+
+// Priority inheritance mutex for ISR communication
+class PriorityMutex {
+private:
+    volatile bool locked = false;
+    volatile uint8_t ownerPriority = 0;
+    
+public:
+    bool tryLock(uint8_t priority) {
+        CriticalSection cs;
+        
+        if (!locked || priority > ownerPriority) {
+            locked = true;
+            ownerPriority = priority;
+            return true;
+        }
+        return false;
+    }
+    
+    void unlock() {
+        CriticalSection cs;
+        locked = false;
+        ownerPriority = 0;
+    }
+};
+```
+
+## Debouncing Patterns
+
+```cpp
+// Interrupt-driven debouncing
+class InterruptDebouncer {
+private:
+    static constexpr uint8_t MAX_PINS = 8;
+    
+    struct PinState {
+        uint8_t pin;
+        volatile uint32_t lastChange;
+        volatile bool stableState;
+        volatile bool pendingState;
+        uint32_t debounceTime;
+        void (*callback)(bool state);
+        bool active;
+    };
+    
+    static PinState pins[MAX_PINS];
+    static volatile bool checkPending;
+    
+public:
+    static void attach(uint8_t pin, void (*callback)(bool), uint32_t debounceMs = 20) {
+        for (auto& p : pins) {
+            if (!p.active) {
+                p = {pin, 0, digitalRead(pin), false, debounceMs, callback, true};
+                attachInterrupt(digitalPinToInterrupt(pin), handleInterrupt, CHANGE);
+                return;
+            }
+        }
+    }
+    
+    static void IRAM_ATTR handleInterrupt() {
+        uint32_t now = millis();
+        
+        for (auto& p : pins) {
+            if (p.active) {
+                bool currentState = digitalRead(p.pin);
+                if (currentState != p.stableState) {
+                    p.pendingState = currentState;
+                    p.lastChange = now;
+                    checkPending = true;
+                }
+            }
+        }
+    }
+    
+    static void process() {
+        if (!checkPending) return;
+        
+        uint32_t now = millis();
+        bool stillPending = false;
+        
+        for (auto& p : pins) {
+            if (p.active && p.pendingState != p.stableState) {
+                if (now - p.lastChange >= p.debounceTime) {
+                    p.stableState = p.pendingState;
+                    if (p.callback) {
+                        p.callback(p.stableState);
+                    }
+                } else {
+                    stillPending = true;
+                }
+            }
+        }
+        
+        checkPending = stillPending;
+    }
+};
+
+InterruptDebouncer::PinState InterruptDebouncer::pins[MAX_PINS];
+volatile bool InterruptDebouncer::checkPending = false;
+```
+
+## Real-Time Scheduling
+
+```cpp
+// Rate Monotonic Scheduler (RMS)
+class RateMonotonicScheduler {
+private:
+    struct Task {
+        void (*function)();
+        uint32_t period;
+        uint32_t deadline;
+        uint32_t lastRun;
+        uint32_t wcet;  // Worst Case Execution Time
+        uint8_t priority;
+        bool active;
+    };
+    
+    static constexpr size_t MAX_TASKS = 10;
+    Task tasks[MAX_TASKS];
+    
+public:
+    RateMonotonicScheduler() {
+        for (auto& task : tasks) {
+            task.active = false;
+        }
+    }
+    
+    bool addTask(void (*func)(), uint32_t periodMs, uint32_t wcetMs) {
+        for (size_t i = 0; i < MAX_TASKS; i++) {
+            if (!tasks[i].active) {
+                tasks[i] = {func, periodMs, periodMs, 0, wcetMs, 
+                           calculatePriority(periodMs), true};
+                return verifySchedulability();
+            }
+        }
+        return false;
+    }
+    
+    void execute() {
+        uint32_t now = millis();
+        
+        // Find highest priority ready task
+        Task* selectedTask = nullptr;
+        uint8_t highestPriority = 0;
+        
+        for (auto& task : tasks) {
+            if (!task.active) continue;
+            
+            if (now - task.lastRun >= task.period) {
+                if (task.priority > highestPriority) {
+                    highestPriority = task.priority;
+                    selectedTask = &task;
+                }
+            }
+        }
+        
+        if (selectedTask) {
+            uint32_t startTime = millis();
+            selectedTask->function();
+            uint32_t executionTime = millis() - startTime;
+            
+            selectedTask->lastRun = now;
+            
+            // Check deadline miss
+            if (executionTime > selectedTask->wcet) {
+                handleDeadlineMiss(selectedTask);
+            }
+        }
+    }
+    
+private:
+    uint8_t calculatePriority(uint32_t period) {
+        // Shorter period = higher priority (RMS)
+        if (period < 10) return 10;
+        if (period < 50) return 8;
+        if (period < 100) return 6;
+        if (period < 500) return 4;
+        if (period < 1000) return 2;
+        return 1;
+    }
+    
+    bool verifySchedulability() {
+        // Liu & Layland test for RMS
+        float utilization = 0;
+        size_t taskCount = 0;
+        
+        for (const auto& task : tasks) {
+            if (task.active) {
+                utilization += static_cast<float>(task.wcet) / task.period;
+                taskCount++;
+            }
+        }
+        
+        float bound = taskCount * (pow(2, 1.0/taskCount) - 1);
+        return utilization <= bound;
+    }
+    
+    void handleDeadlineMiss(Task* task) {
+        // Log or handle deadline miss
+        Serial.print(F("Deadline miss: "));
+        Serial.println((uint32_t)task->function);
+    }
+};
+```
+
+## Watchdog Integration
+
+```cpp
+// Watchdog with ISR tracking
+class WatchdogManager {
+private:
+    static volatile uint32_t lastFeed[8];
+    static const char* taskNames[8];
+    static uint8_t taskCount;
+    
+public:
+    static void init(uint32_t timeoutMs) {
+        #ifdef __AVR__
+        // AVR watchdog setup
+        wdt_enable(WDTO_1S);  // Closest to timeoutMs
+        #elif defined(ESP32)
+        // ESP32 watchdog
+        esp_task_wdt_init(timeoutMs / 1000, true);
+        #endif
+    }
+    
+    static uint8_t registerTask(const char* name) {
+        if (taskCount < 8) {
+            taskNames[taskCount] = name;
+            lastFeed[taskCount] = millis();
+            return taskCount++;
+        }
+        return 255;  // Invalid ID
+    }
+    
+    static void feed(uint8_t taskId) {
+        if (taskId < taskCount) {
+            lastFeed[taskId] = millis();
+            
+            // Check if all tasks are alive
+            uint32_t now = millis();
+            bool allAlive = true;
+            
+            for (uint8_t i = 0; i < taskCount; i++) {
+                if (now - lastFeed[i] > 5000) {  // 5 second timeout
+                    allAlive = false;
+                    Serial.print(F("Task hung: "));
+                    Serial.println(taskNames[i]);
+                }
+            }
+            
+            if (allAlive) {
+                #ifdef __AVR__
+                wdt_reset();
+                #elif defined(ESP32)
+                esp_task_wdt_reset();
+                #endif
+            }
+        }
+    }
+};
+
+volatile uint32_t WatchdogManager::lastFeed[8];
+const char* WatchdogManager::taskNames[8];
+uint8_t WatchdogManager::taskCount = 0;
+```
+
+## Best Practices Summary
+
+1. **Minimal ISRs**: Keep interrupt handlers as short as possible
+2. **Volatile Correctness**: Use volatile for all ISR-shared variables
+3. **Critical Sections**: Protect multi-byte operations and shared data
+4. **No Blocking**: Never use delays or wait loops in ISRs
+5. **Atomic Operations**: Use proper atomic operations for shared data
+6. **Priority Management**: Set appropriate interrupt priorities
+7. **Debouncing**: Implement proper debouncing for inputs
+8. **Timing Constraints**: Monitor and enforce ISR execution times
+9. **Watchdog Safety**: Integrate watchdog for system reliability
+10. **Real-Time Analysis**: Verify schedulability of time-critical tasks

@@ -1,0 +1,356 @@
+---
+description: Backend architecture, API patterns, and service integrations for FastAPI
+globs:
+  - "**/app/api/**"
+  - "**/app/services/**"
+  - "**/app/repositories/**"
+  - "**/app/core/**"
+alwaysApply: true
+---
+
+# Backend Architecture
+
+## Overview
+
+This document defines the backend architecture, API patterns, and external service integrations used in the FastAPI application.
+
+## API Routes
+
+**Framework:** [FastAPI](https://fastapi.tiangolo.com/) with APIRouter
+
+**Location:** `app/api/v1/endpoints/` directory
+
+**Pattern:** Thin route handlers that delegate to services
+
+**Example:**
+
+```python
+# app/api/v1/endpoints/users.py
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.api.dependencies import get_current_user, get_db
+from app.models.domain.user import User
+from app.schemas.user import UserResponse, UserCreate
+from app.services.user_service import UserService
+
+router = APIRouter(prefix="/users", tags=["users"])
+
+
+@router.get("/{user_id}", response_model=UserResponse)
+async def get_user(
+    user_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> UserResponse:
+    """Get user by ID."""
+    user_service = UserService(db)
+    user = await user_service.get_user_by_id(user_id)
+    
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    
+    return UserResponse.from_orm(user)
+```
+
+## Database
+
+**ORM:** [SQLAlchemy](https://www.sqlalchemy.org/) 2.0+ (async)
+
+**Database:** PostgreSQL
+
+**Connection Pooling:** Built-in SQLAlchemy async engine
+
+**Usage:**
+
+```python
+# app/core/database.py
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
+from sqlalchemy.orm import declarative_base
+
+from app.core.config import settings
+
+engine = create_async_engine(
+    settings.DATABASE_URL,
+    echo=settings.DEBUG,
+    future=True,
+    pool_pre_ping=True,
+    pool_size=10,
+    max_overflow=20,
+)
+
+AsyncSessionLocal = async_sessionmaker(
+    engine,
+    class_=AsyncSession,
+    expire_on_commit=False,
+    autocommit=False,
+    autoflush=False,
+)
+
+Base = declarative_base()
+
+
+# Dependency for getting database session
+async def get_db() -> AsyncSession:
+    """Get database session."""
+    async with AsyncSessionLocal() as session:
+        try:
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
+        finally:
+            await session.close()
+```
+
+## API Validation
+
+**Library:** [Pydantic](https://docs.pydantic.dev/) v2
+
+**Location:** `app/schemas/` directory
+
+**Pattern:** Pydantic models for request/response validation
+
+**Example:**
+
+```python
+# app/schemas/user.py
+from datetime import datetime
+from typing import Optional
+from pydantic import BaseModel, EmailStr, Field, ConfigDict
+
+
+class UserBase(BaseModel):
+    """Base user schema."""
+    email: EmailStr
+    full_name: str = Field(..., min_length=1, max_length=255)
+    is_active: bool = True
+
+
+class UserCreate(UserBase):
+    """Schema for creating a user."""
+    password: str = Field(..., min_length=8, max_length=100)
+
+
+class UserUpdate(BaseModel):
+    """Schema for updating a user."""
+    email: Optional[EmailStr] = None
+    full_name: Optional[str] = Field(None, min_length=1, max_length=255)
+    is_active: Optional[bool] = None
+
+
+class UserResponse(UserBase):
+    """Schema for user response."""
+    id: int
+    created_at: datetime
+    updated_at: datetime
+    
+    model_config = ConfigDict(from_attributes=True)
+```
+
+## API Authentication
+
+**Pattern:** JWT tokens with OAuth2 password flow
+
+**Location:** `app/core/security.py` and `app/api/dependencies.py`
+
+**Dependencies:**
+
+```python
+# app/core/security.py
+from datetime import datetime, timedelta
+from typing import Optional
+from jose import JWTError, jwt
+from passlib.context import CryptContext
+
+from app.core.config import settings
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """Verify a password against a hash."""
+    return pwd_context.verify(plain_password, hashed_password)
+
+
+def get_password_hash(password: str) -> str:
+    """Hash a password."""
+    return pwd_context.hash(password)
+
+
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
+    """Create a JWT access token."""
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(minutes=15)
+    
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(
+        to_encode,
+        settings.SECRET_KEY,
+        algorithm=settings.ALGORITHM
+    )
+    return encoded_jwt
+
+
+# app/api/dependencies.py
+from fastapi import Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordBearer
+from jose import JWTError, jwt
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.config import settings
+from app.core.database import get_db
+from app.models.domain.user import User
+from app.repositories.user_repository import UserRepository
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/v1/auth/login")
+
+
+async def get_current_user(
+    token: str = Depends(oauth2_scheme),
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    """Get current authenticated user."""
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    
+    try:
+        payload = jwt.decode(
+            token,
+            settings.SECRET_KEY,
+            algorithms=[settings.ALGORITHM]
+        )
+        user_id: int = payload.get("sub")
+        if user_id is None:
+            raise credentials_exception
+    except JWTError:
+        raise credentials_exception
+    
+    user_repo = UserRepository(db)
+    user = await user_repo.get_by_id(user_id)
+    
+    if user is None:
+        raise credentials_exception
+    
+    return user
+
+
+async def get_current_active_user(
+    current_user: User = Depends(get_current_user),
+) -> User:
+    """Get current active user."""
+    if not current_user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Inactive user"
+        )
+    return current_user
+```
+
+## Background Tasks
+
+**Library:** [Celery](https://docs.celeryproject.org/) with Redis
+
+**Usage:**
+
+```python
+# app/core/celery_app.py
+from celery import Celery
+
+from app.core.config import settings
+
+celery_app = Celery(
+    "worker",
+    broker=settings.REDIS_URL,
+    backend=settings.REDIS_URL,
+    include=["app.tasks"]
+)
+
+celery_app.conf.task_routes = {
+    "app.tasks.*": "main-queue",
+}
+
+# app/tasks/email_tasks.py
+from app.core.celery_app import celery_app
+
+@celery_app.task(name="send_email")
+def send_email_task(email_to: str, subject: str, body: str) -> None:
+    """Send email task."""
+    # Email sending logic
+    pass
+```
+
+## Caching
+
+**Library:** Redis with aioredis
+
+**Pattern:** Cache decorators and explicit cache management
+
+**Example:**
+
+```python
+# app/core/cache.py
+from functools import wraps
+from typing import Callable, TypeVar, Any
+import json
+from redis import asyncio as aioredis
+
+from app.core.config import settings
+
+redis_client: Optional[aioredis.Redis] = None
+
+
+async def get_redis() -> aioredis.Redis:
+    """Get Redis client."""
+    global redis_client
+    if redis_client is None:
+        redis_client = await aioredis.from_url(
+            settings.REDIS_URL,
+            encoding="utf-8",
+            decode_responses=True
+        )
+    return redis_client
+
+
+def cache_result(ttl: int = 300):
+    """Cache function result decorator."""
+    def decorator(func: Callable) -> Callable:
+        @wraps(func)
+        async def wrapper(*args, **kwargs):
+            redis = await get_redis()
+            cache_key = f"{func.__name__}:{args}:{kwargs}"
+            
+            cached = await redis.get(cache_key)
+            if cached:
+                return json.loads(cached)
+            
+            result = await func(*args, **kwargs)
+            await redis.setex(cache_key, ttl, json.dumps(result))
+            return result
+        
+        return wrapper
+    return decorator
+```
+
+## Best Practices
+
+1. **Thin Route Handlers:** Keep API routes thin, delegate to services
+2. **Always Validate:** Use Pydantic models for all request/response validation
+3. **Error Handling:** Use custom exceptions and exception handlers
+4. **Service Layer:** All business logic in services, not routes
+5. **Type Safety:** Use type hints throughout, leverage Pydantic models
+6. **Security:** Never expose sensitive data in error messages or logs
+7. **Consistent Responses:** Use consistent response format
+8. **Async First:** Use async/await for all I/O operations
+9. **Dependency Injection:** Use FastAPI's Depends for shared resources
+10. **Database Sessions:** Always use async sessions, manage transactions properly

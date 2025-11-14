@@ -1,0 +1,602 @@
+---
+description: Error handling patterns and best practices for the codebase
+globs:
+  - "**/*.ts"
+  - "**/*.tsx"
+alwaysApply: true
+---
+
+# Error Handling Patterns
+
+## Philosophy
+
+Errors are inevitable in any application. Our error handling strategy focuses on:
+1. **Graceful Degradation** - The application should continue functioning even when errors occur
+2. **User-Friendly Feedback** - Users should understand what went wrong without technical jargon
+3. **Developer Debugging** - Errors should contain enough context for debugging
+4. **Security** - Never expose sensitive information in error messages
+
+## Error Types
+
+### 1. Application Errors
+
+Custom error classes for domain-specific errors:
+
+```typescript
+// src/utils/errors/ApplicationError.ts
+export class ApplicationError extends Error {
+  public readonly statusCode: number;
+  public readonly isOperational: boolean;
+
+  constructor(message: string, statusCode: number = 500, isOperational: boolean = true) {
+    super(message);
+    Object.setPrototypeOf(this, new.target.prototype);
+    this.name = this.constructor.name;
+    this.statusCode = statusCode;
+    this.isOperational = isOperational;
+    Error.captureStackTrace(this);
+  }
+}
+
+// Specific error types
+export class ValidationError extends ApplicationError {
+  constructor(message: string) {
+    super(message, 400);
+  }
+}
+
+export class AuthenticationError extends ApplicationError {
+  constructor(message: string = 'Authentication failed') {
+    super(message, 401);
+  }
+}
+
+export class AuthorizationError extends ApplicationError {
+  constructor(message: string = 'Access denied') {
+    super(message, 403);
+  }
+}
+
+export class NotFoundError extends ApplicationError {
+  constructor(resource: string) {
+    super(`${resource} not found`, 404);
+  }
+}
+
+export class ConflictError extends ApplicationError {
+  constructor(message: string) {
+    super(message, 409);
+  }
+}
+
+export class RateLimitError extends ApplicationError {
+  constructor(message: string = 'Too many requests') {
+    super(message, 429);
+  }
+}
+```
+
+### 2. External Service Errors
+
+Wrap external service errors with context:
+
+```typescript
+// src/utils/errors/ExternalServiceError.ts
+export class ExternalServiceError extends ApplicationError {
+  public readonly service: string;
+  public readonly originalError?: any;
+
+  constructor(service: string, message: string, originalError?: any) {
+    super(`${service} error: ${message}`, 503);
+    this.service = service;
+    this.originalError = originalError;
+  }
+}
+
+// Usage
+try {
+  const result = await supabase.from('users').select();
+  if (result.error) {
+    throw new ExternalServiceError('Supabase', result.error.message, result.error);
+  }
+} catch (error) {
+  // Handle or re-throw
+}
+```
+
+## Error Handling Patterns
+
+### 1. Service Layer Error Handling
+
+Services should handle errors and provide meaningful context:
+
+```typescript
+// src/services/userService.ts
+import { NotFoundError, ValidationError, ExternalServiceError } from '@/utils/errors';
+import { getServerLogger } from '@/utils/logger';
+
+const logger = getServerLogger('Service:UserService');
+
+export async function getUserProfile(userId: string) {
+  try {
+    // Input validation
+    if (!userId || !isValidUUID(userId)) {
+      throw new ValidationError('Invalid user ID format');
+    }
+
+    const { data, error } = await supabase
+      .from('users')
+      .select('*')
+      .eq('id', userId)
+      .single();
+
+    if (error) {
+      if (error.code === 'PGRST116') {
+        throw new NotFoundError('User');
+      }
+      throw new ExternalServiceError('Supabase', error.message, error);
+    }
+
+    return data;
+  } catch (error) {
+    // Log the error with context
+    logger.error('Failed to fetch user profile', {
+      userId,
+      error: error instanceof Error ? error.message : 'Unknown error',
+      stack: error instanceof Error ? error.stack : undefined
+    });
+    
+    // Re-throw application errors
+    if (error instanceof ApplicationError) {
+      throw error;
+    }
+    
+    // Wrap unexpected errors
+    throw new ApplicationError('Failed to fetch user profile', 500);
+  }
+}
+```
+
+### 2. API Route Error Handling
+
+Use a consistent error handler for API routes:
+
+```typescript
+// src/utils/api/errorHandler.ts
+import { NextApiRequest, NextApiResponse } from 'next';
+import { ApplicationError } from '@/utils/errors';
+import { getServerLogger } from '@/utils/logger';
+
+const logger = getServerLogger('API:ErrorHandler');
+
+export function withErrorHandler(
+  handler: (req: NextApiRequest, res: NextApiResponse) => Promise<void>
+) {
+  return async (req: NextApiRequest, res: NextApiResponse) => {
+    try {
+      await handler(req, res);
+    } catch (error) {
+      // Log error details
+      logger.error('API request failed', {
+        method: req.method,
+        url: req.url,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+        userId: (req as any).user?.id
+      });
+
+      // Send appropriate response
+      if (error instanceof ApplicationError) {
+        return res.status(error.statusCode).json({
+          error: {
+            message: error.message,
+            code: error.constructor.name
+          }
+        });
+      }
+
+      // Don't expose internal errors to clients
+      return res.status(500).json({
+        error: {
+          message: 'An unexpected error occurred',
+          code: 'INTERNAL_SERVER_ERROR'
+        }
+      });
+    }
+  };
+}
+
+// Usage in API route
+// src/pages/api/users/[id].ts
+export default withAuthentication(
+  withErrorHandler(async (req, res) => {
+    const { id } = req.query;
+    const user = await getUserProfile(id as string);
+    res.status(200).json({ data: user });
+  })
+);
+```
+
+### 3. React Error Boundaries
+
+For catching React component errors:
+
+```typescript
+// src/components/ErrorBoundary.tsx
+import React, { Component, ErrorInfo, ReactNode } from 'react';
+import { Box, Heading, Text, Button } from '@chakra-ui/react';
+import { getClientLogger } from '@/utils/logger/clientLogger';
+
+const logger = getClientLogger('Component:ErrorBoundary');
+
+interface Props {
+  children: ReactNode;
+  fallback?: (error: Error, resetError: () => void) => ReactNode;
+}
+
+interface State {
+  hasError: boolean;
+  error: Error | null;
+}
+
+export class ErrorBoundary extends Component<Props, State> {
+  constructor(props: Props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error): State {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    logger.error('React component error', {
+      error: error.message,
+      componentStack: errorInfo.componentStack,
+      stack: error.stack
+    });
+  }
+
+  resetError = () => {
+    this.setState({ hasError: false, error: null });
+  };
+
+  render() {
+    if (this.state.hasError && this.state.error) {
+      if (this.props.fallback) {
+        return this.props.fallback(this.state.error, this.resetError);
+      }
+
+      return (
+        <Box p={8} textAlign="center">
+          <Heading size="lg" mb={4}>Something went wrong</Heading>
+          <Text mb={4}>
+            We're sorry, but something unexpected happened. Please try refreshing the page.
+          </Text>
+          <Button onClick={this.resetError} colorScheme="blue">
+            Try Again
+          </Button>
+        </Box>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
+// Usage - Wrap critical sections
+// src/pages/_app.tsx
+function MyApp({ Component, pageProps }: AppProps) {
+  return (
+    <ErrorBoundary>
+      <Component {...pageProps} />
+    </ErrorBoundary>
+  );
+}
+```
+
+### 4. Client-Side API Error Handling
+
+Consistent error handling for client-side API calls:
+
+```typescript
+// src/utils/api/client.ts
+export class APIError extends Error {
+  constructor(
+    message: string,
+    public statusCode: number,
+    public code?: string
+  ) {
+    super(message);
+    this.name = 'APIError';
+  }
+}
+
+export async function safeFetch<T>(
+  url: string,
+  options?: RequestInit
+): Promise<T> {
+  try {
+    const response = await fetch(url, options);
+    
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new APIError(
+        errorData.error?.message || 'Request failed',
+        response.status,
+        errorData.error?.code
+      );
+    }
+    
+    return await response.json();
+  } catch (error) {
+    if (error instanceof APIError) {
+      throw error;
+    }
+    
+    // Network errors
+    throw new APIError(
+      'Network error. Please check your connection.',
+      0
+    );
+  }
+}
+```
+
+### 5. Form Error Handling
+
+Using React Hook Form with Yup validation:
+
+```typescript
+// src/components/forms/UserForm.tsx
+import { useForm } from 'react-hook-form';
+import { yupResolver } from '@hookform/resolvers/yup';
+import { userSchema } from '@/schemas/userSchema';
+import { useState } from 'react';
+import { Alert, AlertIcon } from '@chakra-ui/react';
+
+export function UserForm() {
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  
+  const {
+    register,
+    handleSubmit,
+    formState: { errors },
+    setError
+  } = useForm({
+    resolver: yupResolver(userSchema)
+  });
+
+  const onSubmit = async (data: any) => {
+    try {
+      setSubmitError(null);
+      await createUser(data);
+    } catch (error) {
+      if (error instanceof APIError) {
+        // Field-specific errors
+        if (error.code === 'EMAIL_EXISTS') {
+          setError('email', { message: 'Email already exists' });
+        } else {
+          // General form error
+          setSubmitError(error.message);
+        }
+      } else {
+        setSubmitError('An unexpected error occurred. Please try again.');
+      }
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit(onSubmit)}>
+      {submitError && (
+        <Alert status="error" mb={4}>
+          <AlertIcon />
+          {submitError}
+        </Alert>
+      )}
+      {/* Form fields */}
+    </form>
+  );
+}
+```
+
+## Error Recovery Strategies
+
+### 1. Retry Logic
+
+For transient failures:
+
+```typescript
+// src/utils/retry.ts
+export async function withRetry<T>(
+  operation: () => Promise<T>,
+  options: {
+    maxAttempts?: number;
+    delay?: number;
+    backoff?: number;
+    shouldRetry?: (error: any) => boolean;
+  } = {}
+): Promise<T> {
+  const {
+    maxAttempts = 3,
+    delay = 1000,
+    backoff = 2,
+    shouldRetry = (error) => error instanceof ExternalServiceError
+  } = options;
+
+  let lastError: any;
+  
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+      
+      if (attempt === maxAttempts || !shouldRetry(error)) {
+        throw error;
+      }
+      
+      const waitTime = delay * Math.pow(backoff, attempt - 1);
+      await new Promise(resolve => setTimeout(resolve, waitTime));
+    }
+  }
+  
+  throw lastError;
+}
+
+// Usage
+const data = await withRetry(() => fetchUserData(userId), {
+  shouldRetry: (error) => error.statusCode === 503
+});
+```
+
+### 2. Fallback Values
+
+Provide sensible defaults:
+
+```typescript
+// src/hooks/useUserPreferences.ts
+export function useUserPreferences() {
+  const [preferences, setPreferences] = useState(DEFAULT_PREFERENCES);
+  const [error, setError] = useState<Error | null>(null);
+
+  useEffect(() => {
+    fetchUserPreferences()
+      .then(setPreferences)
+      .catch((error) => {
+        logger.warn('Failed to load user preferences, using defaults', { error });
+        setError(error);
+        // Keep using default preferences
+      });
+  }, []);
+
+  return { preferences, error };
+}
+```
+
+### 3. Circuit Breaker
+
+Prevent cascading failures:
+
+```typescript
+// src/utils/circuitBreaker.ts
+export class CircuitBreaker {
+  private failures = 0;
+  private lastFailureTime = 0;
+  private state: 'CLOSED' | 'OPEN' | 'HALF_OPEN' = 'CLOSED';
+
+  constructor(
+    private threshold: number = 5,
+    private timeout: number = 60000
+  ) {}
+
+  async execute<T>(operation: () => Promise<T>): Promise<T> {
+    if (this.state === 'OPEN') {
+      if (Date.now() - this.lastFailureTime > this.timeout) {
+        this.state = 'HALF_OPEN';
+      } else {
+        throw new Error('Circuit breaker is OPEN');
+      }
+    }
+
+    try {
+      const result = await operation();
+      this.onSuccess();
+      return result;
+    } catch (error) {
+      this.onFailure();
+      throw error;
+    }
+  }
+
+  private onSuccess() {
+    this.failures = 0;
+    this.state = 'CLOSED';
+  }
+
+  private onFailure() {
+    this.failures++;
+    this.lastFailureTime = Date.now();
+    
+    if (this.failures >= this.threshold) {
+      this.state = 'OPEN';
+    }
+  }
+}
+```
+
+## Error Monitoring
+
+### 1. Structured Error Logging
+
+Always include context:
+
+```typescript
+logger.error('Operation failed', {
+  operation: 'createWorkflow',
+  userId: req.user.id,
+  workflowData: { name: workflow.name }, // Don't log sensitive data
+  error: {
+    message: error.message,
+    code: error.code,
+    stack: error.stack
+  },
+  timestamp: new Date().toISOString()
+});
+```
+
+### 2. Error Aggregation
+
+Track error patterns:
+
+```typescript
+// src/utils/errorTracking.ts
+export function trackError(error: Error, context: Record<string, any> = {}) {
+  // In production, send to error tracking service
+  if (process.env.NODE_ENV === 'production') {
+    // e.g., Sentry, LogRocket, etc.
+    // Sentry.captureException(error, { extra: context });
+  }
+  
+  // Always log locally
+  logger.error('Tracked error', { error, context });
+}
+```
+
+## Best Practices
+
+1. **Be Specific** - Create specific error types for different scenarios
+2. **Add Context** - Include relevant IDs, operations, and state in error logs
+3. **User-Friendly Messages** - Separate technical errors from user-facing messages
+4. **Don't Swallow Errors** - Always handle errors explicitly
+5. **Test Error Paths** - Include error scenarios in your tests
+6. **Document Errors** - Document possible errors in function JSDoc
+7. **Fail Fast** - Validate inputs early and throw immediately
+8. **Graceful Degradation** - Provide fallbacks where possible
+9. **Security First** - Never expose sensitive data in error messages
+10. **Monitor Proactively** - Set up alerts for error spikes
+
+## Common Patterns to Avoid
+
+```typescript
+// ❌ BAD - Silent failures
+try {
+  await riskyOperation();
+} catch (error) {
+  // Silently ignoring errors
+}
+
+// ❌ BAD - Generic error messages
+throw new Error('Error occurred');
+
+// ❌ BAD - Exposing internals
+res.status(500).json({ error: error.stack });
+
+// ❌ BAD - Inconsistent error handling
+if (!user) return res.status(404).json({ msg: 'Not found' });
+if (!valid) return res.status(400).send('Bad request');
+
+// ✅ GOOD - Consistent, informative errors
+if (!user) throw new NotFoundError('User');
+if (!valid) throw new ValidationError('Invalid input format');
+```

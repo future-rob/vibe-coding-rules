@@ -1,0 +1,481 @@
+---
+description: Commenting and documentation standards for embedded C++ code
+globs:
+  - "**/*.cpp"
+  - "**/*.c"
+  - "**/*.h"
+  - "**/*.hpp"
+alwaysApply: true
+---
+
+# Commenting Guidelines
+
+## Philosophy
+
+Comments should explain **why** and **intent**, not **what**. The code itself should be self-documenting through clear naming and structure. In embedded systems, comments are especially important for documenting hardware assumptions, timing constraints, and non-obvious optimizations.
+
+## Documentation Comments
+
+### Function Documentation
+
+```cpp
+/**
+ * @brief Reads temperature from the DHT22 sensor
+ * 
+ * Performs a complete sensor reading cycle including:
+ * - Initiating communication
+ * - Reading 40 bits of data
+ * - Validating checksum
+ * - Converting to temperature value
+ * 
+ * @param sensorPin GPIO pin connected to DHT22 data line
+ * @param retries Number of retry attempts if read fails (default: 3)
+ * @return Temperature in Celsius, or NaN if reading failed
+ * 
+ * @note This function blocks for approximately 100ms during reading
+ * @warning Pin must have pull-up resistor (4.7kΩ recommended)
+ * @warning Do not call more than once every 2 seconds
+ * 
+ * @example
+ * float temp = readDHT22Temperature(2);
+ * if (!isnan(temp)) {
+ *   Serial.print("Temperature: ");
+ *   Serial.println(temp);
+ * }
+ */
+float readDHT22Temperature(uint8_t sensorPin, uint8_t retries = 3);
+
+/**
+ * @brief Initializes the SPI bus for sensor communication
+ * 
+ * Configures SPI peripheral with device-specific settings:
+ * - Mode: CPOL=1, CPHA=1 (SPI mode 3)
+ * - Clock: 1MHz (sensor maximum)
+ * - MSB first
+ * - Chip select managed manually
+ * 
+ * @param clockSpeed SPI clock frequency in Hz (max 1MHz)
+ * @return ErrorCode::OK on success, error code on failure
+ * 
+ * @note Must be called before any SPI operations
+ * @note Reinitializes SPI if already initialized
+ */
+ErrorCode initializeSPI(uint32_t clockSpeed = 1000000);
+```
+
+### Class Documentation
+
+```cpp
+/**
+ * @brief Hardware abstraction for I2C temperature sensor
+ * 
+ * Provides a high-level interface for reading temperature from
+ * I2C-based sensors (e.g., TMP102, LM75). Handles device initialization,
+ * register access, and error recovery automatically.
+ * 
+ * @note Thread-safe for single-threaded embedded systems
+ * @note Not thread-safe for multi-threaded environments
+ * 
+ * @example
+ * I2CTemperatureSensor sensor(0x48);  // TMP102 at default address
+ * if (sensor.begin()) {
+ *   float temp = sensor.readCelsius();
+ * }
+ */
+class I2CTemperatureSensor {
+public:
+  /**
+   * @brief Constructs sensor interface
+   * @param address I2C device address (7-bit, right-aligned)
+   */
+  explicit I2CTemperatureSensor(uint8_t address);
+  
+  /**
+   * @brief Initializes sensor and verifies communication
+   * @return true if sensor responds, false otherwise
+   */
+  bool begin();
+  
+  /**
+   * @brief Reads current temperature
+   * @return Temperature in Celsius, or NaN on error
+   * @note Reading takes approximately 30ms
+   */
+  float readCelsius();
+};
+```
+
+### Hardware-Specific Comments
+
+```cpp
+// Pin configuration and hardware assumptions
+// Pin 2: Button (active LOW, internal pull-up enabled)
+// Pin 13: Status LED (active HIGH)
+// Pin A0: Analog sensor input (0-5V range)
+// I2C: SDA=21, SCL=22 (ESP32 default)
+
+// Timing constraints
+delay(10);  // DHT22 requires 10ms minimum between readings
+delayMicroseconds(100);  // SPI CS setup time per datasheet
+
+// Hardware register access
+// Direct port manipulation for speed-critical operations
+PORTB |= (1 << PB5);  // Set pin 13 HIGH (faster than digitalWrite)
+
+// Memory layout
+// Buffer layout: [header:4][data:248][checksum:4]
+// Total: 256 bytes, aligned to 32-byte boundary for DMA
+
+// Interrupt timing
+// ISR must complete in < 50us to avoid missing next timer tick
+// Current worst case: ~35us (measured with oscilloscope)
+```
+
+## Inline Comments
+
+### Explaining Intent
+
+```cpp
+// ✅ GOOD - Explains why
+delay(10);  // Wait for sensor to stabilize after power-on reset
+
+// ❌ BAD - States the obvious
+delay(10);  // Delay for 10 milliseconds
+
+// ✅ GOOD - Documents non-obvious behavior
+// Shift right by 3 instead of divide by 8 for performance
+uint8_t average = (sum >> 3);
+
+// ❌ BAD - Redundant
+uint8_t average = (sum >> 3);  // Divide by 8
+
+// ✅ GOOD - Explains hardware workaround
+// Workaround: Sensor v1.0 has timing bug requiring extra delay
+delayMicroseconds(50);  // Normal timing would be 20us
+
+// ✅ GOOD - Documents optimization
+// Use bit manipulation instead of modulo for power-of-2 sizes
+uint8_t index = (head + 1) & (BUFFER_SIZE - 1);
+```
+
+### Complex Algorithms
+
+```cpp
+/**
+ * Calculates CRC-8 checksum using polynomial 0x31
+ * 
+ * Algorithm: Standard CRC-8 with polynomial x^8 + x^5 + x^4 + 1
+ * Initial value: 0xFF
+ * Final XOR: None
+ * 
+ * @param data Input data buffer
+ * @param length Number of bytes to process
+ * @return 8-bit CRC value
+ */
+uint8_t calculateCRC8(const uint8_t* data, size_t length) {
+  uint8_t crc = 0xFF;  // Initialize with all bits set
+  
+  for (size_t i = 0; i < length; i++) {
+    crc ^= data[i];  // XOR with data byte
+    
+    // Process each bit using polynomial
+    for (uint8_t bit = 0; bit < 8; bit++) {
+      if (crc & 0x80) {
+        // MSB is set, apply polynomial
+        crc = (crc << 1) ^ 0x31;  // Polynomial: 0x31
+      } else {
+        // MSB is clear, just shift
+        crc <<= 1;
+      }
+    }
+  }
+  
+  return crc;
+}
+```
+
+### Performance-Critical Sections
+
+```cpp
+// Critical section: Must complete in < 100us
+// Disable interrupts to prevent race condition with ISR
+noInterrupts();
+{
+  // Copy shared data atomically
+  memcpy(localBuffer, isrBuffer, sizeof(localBuffer));
+  isrBufferIndex = 0;
+}
+interrupts();
+
+// Hot path optimization: Unroll loop for known small sizes
+// Measured: 15% faster than generic loop (profiled on AVR)
+if constexpr (SIZE == 4) {
+  buffer[0] = 0;
+  buffer[1] = 0;
+  buffer[2] = 0;
+  buffer[3] = 0;
+} else {
+  // Fallback for other sizes
+  memset(buffer, 0, SIZE);
+}
+```
+
+## TODO and FIXME Comments
+
+### Format
+
+```cpp
+// TODO: Include context and owner
+// TODO(john): Add timeout handling for I2C operations
+// TODO: Implement exponential backoff for retry logic
+// TODO(issue#42): Support multiple sensor types
+
+// FIXME: Document the problem and workaround
+// FIXME: Buffer overflow possible if length > 255
+//         Current workaround: Clamp to 255
+//         Proper fix: Use size_t and check bounds
+
+// HACK: Document why the hack is necessary
+// HACK: Delay needed due to hardware bug in sensor v1.0
+//       Remove when upgrading to v1.1 hardware
+
+// XXX: Critical issue requiring attention
+// XXX: This violates real-time constraints but works for now
+//      Need to refactor to use DMA instead
+
+// NOTE: Important information
+// NOTE: This function modifies global state
+// NOTE: Not safe to call from ISR
+```
+
+### Tracking
+
+```cpp
+// Use consistent format for tracking
+// TODO(2024-01-15): Add sensor calibration
+// FIXME(2024-01-20): Memory leak in error path
+// HACK(2024-01-25): Temporary workaround for ESP32 bug
+
+// Link to issues/tickets
+// TODO: See issue #123 for full requirements
+// FIXME: Related to bug report #456
+```
+
+## Code Sections
+
+### Section Headers
+
+```cpp
+// ============================================================================
+// Public Interface
+// ============================================================================
+
+bool begin();
+float read();
+
+// ============================================================================
+// Private Members
+// ============================================================================
+
+uint8_t address_;
+bool initialized_;
+
+// ============================================================================
+// Private Methods
+// ============================================================================
+
+bool verifyConnection();
+float readRegister(uint8_t reg);
+```
+
+### Logical Grouping
+
+```cpp
+class SensorManager {
+  // ========================================================================
+  // Construction and Initialization
+  // ========================================================================
+public:
+  SensorManager();
+  bool begin();
+  
+  // ========================================================================
+  // Sensor Operations
+  // ========================================================================
+public:
+  float readTemperature();
+  float readHumidity();
+  
+  // ========================================================================
+  // Configuration
+  // ========================================================================
+public:
+  void setCalibration(float offset);
+  void setSampleRate(uint32_t rateMs);
+  
+  // ========================================================================
+  // Internal State
+  // ========================================================================
+private:
+  float calibrationOffset_;
+  uint32_t sampleInterval_;
+  uint32_t lastSampleTime_;
+};
+```
+
+## Platform-Specific Comments
+
+```cpp
+// Platform-specific implementations
+#ifdef ARDUINO_ARCH_AVR
+  // AVR: Use direct port manipulation for speed
+  PORTB |= (1 << PB5);
+#elif defined(ESP32)
+  // ESP32: Use GPIO functions (port manipulation not recommended)
+  gpio_set_level(GPIO_NUM_13, 1);
+#elif defined(STM32)
+  // STM32: Use HAL functions
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_13, GPIO_PIN_SET);
+#endif
+
+// Memory constraints
+#ifdef ARDUINO_ARCH_AVR
+  // AVR: Limited RAM, use PROGMEM for strings
+  const char msg[] PROGMEM = "Hello";
+#elif defined(ESP32)
+  // ESP32: More RAM available, can use regular strings
+  const char* msg = "Hello";
+#endif
+```
+
+## Protocol Documentation
+
+```cpp
+/**
+ * @brief Implements custom serial protocol
+ * 
+ * Protocol Format:
+ *   [START:1][LENGTH:1][DATA:N][CHECKSUM:1][END:1]
+ * 
+ *   START:    0xAA (sync byte)
+ *   LENGTH:   Data length (0-255)
+ *   DATA:     Variable length payload
+ *   CHECKSUM: XOR of all bytes including START and LENGTH
+ *   END:      0x55 (end marker)
+ * 
+ * Example packet:
+ *   0xAA 0x03 0x01 0x02 0x03 0xA7 0x55
+ *   |    |    |         |    |    |
+ *   |    |    |         |    |    +-- END
+ *   |    |    |         |    +------- CHECKSUM
+ *   |    |    |         +------------ DATA (3 bytes)
+ *   |    |    +---------------------- LENGTH
+ *   |    +---------------------------- START
+ *   +---------------------------------- START
+ * 
+ * Timing:
+ *   - Baud rate: 115200
+ *   - Inter-byte timeout: 10ms
+ *   - Packet timeout: 100ms
+ * 
+ * Error Handling:
+ *   - Invalid checksum: Request retransmission
+ *   - Timeout: Abort and reset state machine
+ */
+class SerialProtocol {
+  // Implementation...
+};
+```
+
+## Memory and Performance Notes
+
+```cpp
+// Memory usage documentation
+// Stack usage: ~200 bytes (measured with stack painting)
+// Heap usage: 0 bytes (all static allocation)
+// Flash usage: ~2KB (measured with avr-size)
+
+// Performance characteristics
+// Execution time: ~50us average, ~100us worst case
+// CPU usage: < 1% at 1Hz sampling rate
+// Power consumption: +2mA when active
+
+// Optimization notes
+// This function is inlined for performance (hot path)
+// Loop unrolled for known compile-time size
+// Uses bit manipulation instead of division
+```
+
+## Safety and Reliability Comments
+
+```cpp
+// Safety-critical sections
+// CRITICAL: This function controls safety-critical hardware
+// Must never fail - implement watchdog timeout
+void controlSafetyShutdown(bool enable) {
+  // Implementation with redundant checks
+}
+
+// Watchdog integration
+// Feed watchdog every 100ms to prevent reset
+// If this loop hangs, watchdog will reset system
+void mainLoop() {
+  while (true) {
+    processTasks();
+    feedWatchdog();  // Must be called regularly
+    delay(100);
+  }
+}
+
+// Error recovery
+// If sensor fails 3 times, enter degraded mode
+// Continue operating with last known good value
+if (failureCount >= 3) {
+  enterDegradedMode();
+  useCachedValue();
+}
+```
+
+## What NOT to Comment
+
+```cpp
+// ❌ DON'T comment obvious code
+int count = 0;  // Initialize count to zero
+count++;        // Increment count
+
+// ❌ DON'T duplicate type information
+float temperature;  // Temperature value in float format
+
+// ❌ DON'T comment what the code does
+if (value > 100) {  // Check if value is greater than 100
+  return ERROR;     // Return error
+}
+
+// ❌ DON'T leave commented-out code
+// float oldValue = calculateOld();
+// processOldValue(oldValue);
+
+// ❌ DON'T use comments for version control
+// Changed by John on 2024-01-15
+// Updated to fix bug #123
+
+// ✅ DO comment why, not what
+if (value > 100) {
+  // Sensor reading exceeds maximum valid range
+  // Return error to prevent invalid data propagation
+  return ERROR;
+}
+```
+
+## Best Practices Summary
+
+1. **Explain Why**: Focus on intent and reasoning, not implementation
+2. **Hardware Documentation**: Document pin connections, timing, and constraints
+3. **Performance Notes**: Comment optimizations and their rationale
+4. **Safety Critical**: Clearly mark safety-critical sections
+5. **Platform Specific**: Document platform differences and workarounds
+6. **Protocols**: Document communication protocols thoroughly
+7. **Memory Usage**: Document memory and performance characteristics
+8. **TODO Format**: Use consistent TODO/FIXME format with context
+9. **Code Sections**: Use section headers for large files
+10. **Avoid Redundancy**: Don't comment what the code already makes clear

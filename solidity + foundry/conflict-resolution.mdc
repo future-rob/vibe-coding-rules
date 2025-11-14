@@ -1,0 +1,251 @@
+---
+description: Guidance for resolving rule conflicts and handling exceptions in Solidity Foundry projects
+globs:
+  - "**/*.sol"
+alwaysApply: true
+---
+
+# Conflict Resolution
+
+## Overview
+
+When coding guidelines conflict or when exceptions are needed, this document provides guidance on how to resolve conflicts and document exceptions. In smart contract development, security always takes precedence.
+
+## Priority Hierarchy
+
+When rules conflict, follow this priority order:
+
+1. **Security Guidelines** - Security always takes precedence over everything
+2. **No Hiding Rule** - Never suppress compiler warnings or errors
+3. **Core Framework & Language** - Solidity and Foundry requirements
+4. **Error Handling Patterns** - Consistent error handling
+5. **Code Style Guidelines** - Formatting and style
+6. **Performance Guidelines** - Gas optimization considerations
+7. **Commenting Guidelines** - Documentation standards
+
+## Common Conflict Scenarios
+
+### Scenario 1: Security vs Gas Optimization
+
+**Conflict:** Security pattern requires more gas than optimized version
+
+**Resolution:**
+- Security always wins
+- Optimize gas in other ways if possible
+- Document why security takes precedence
+
+**Example:**
+
+```solidity
+// Security requires checks-effects-interactions pattern
+// Gas optimization might suggest different order
+// Resolution: Security first, optimize elsewhere
+
+// ✅ GOOD - Secure first, optimize elsewhere
+function withdraw() external nonReentrant {
+    uint256 amount = balances[msg.sender];  // Check
+    balances[msg.sender] = 0;  // Effects (state update first)
+    (bool success, ) = msg.sender.call{value: amount}("");  // Interactions (external call last)
+    require(success, "Transfer failed");
+}
+
+// ❌ BAD - Gas optimization at expense of security
+function withdraw() external {
+    // External call before state update - vulnerable to reentrancy
+    (bool success, ) = msg.sender.call{value: balances[msg.sender]}("");
+    balances[msg.sender] = 0;
+}
+```
+
+### Scenario 2: Gas Optimization vs Readability
+
+**Conflict:** Gas optimization makes code less readable
+
+**Resolution:**
+- Optimize when there's measurable gas savings
+- Add comments explaining the optimization
+- Consider if optimization is necessary
+
+**Example:**
+
+```solidity
+// Gas optimization requires complex code
+// Readability prefers simpler code
+// Resolution: Optimize, but document why
+
+// ✅ GOOD - Optimized with explanation
+// Cache storage read to avoid multiple SLOAD operations (saves ~2100 gas per read)
+uint256 cachedBalance = balances[msg.sender];
+for (uint256 i = 0; i < users.length; i++) {
+    // Use cached value instead of reading from storage
+    processUser(users[i], cachedBalance);
+}
+
+// ❌ BAD - Readable but inefficient
+for (uint256 i = 0; i < users.length; i++) {
+    // Reading from storage in each iteration (expensive)
+    processUser(users[i], balances[msg.sender]);
+}
+```
+
+### Scenario 3: Code Style vs Gas Optimization
+
+**Conflict:** Style guide suggests one approach, gas optimization suggests another
+
+**Resolution:**
+- Prefer gas optimization for measurable savings
+- Document the deviation from style guide
+- Consider readability impact
+
+**Example:**
+
+```solidity
+// Style guide suggests descriptive names
+// Gas optimization suggests shorter names (minimal impact)
+// Resolution: Follow style guide (gas impact is minimal)
+
+// ✅ GOOD - Descriptive names (style guide)
+function transfer(address recipient, uint256 amount) external {
+    // ...
+}
+
+// ❌ BAD - Abbreviated names (not worth gas savings)
+function transfer(address to, uint256 amt) external {
+    // ...
+}
+```
+
+### Scenario 4: Documentation vs Gas
+
+**Conflict:** NatSpec documentation adds to bytecode size
+
+**Resolution:**
+- Documentation is required (doesn't affect runtime gas)
+- Bytecode size is less important than documentation
+- Document all public/external functions
+
+**Example:**
+
+```solidity
+// NatSpec adds to bytecode size
+// But documentation is required
+// Resolution: Always document
+
+// ✅ GOOD - Documented (required)
+/// @notice Transfers tokens to recipient
+/// @param to Recipient address
+/// @param amount Amount to transfer
+function transfer(address to, uint256 amount) external {
+    // ...
+}
+
+// ❌ BAD - No documentation (not acceptable)
+function transfer(address to, uint256 amount) external {
+    // ...
+}
+```
+
+### Scenario 5: Testing vs Development Speed
+
+**Conflict:** Comprehensive testing slows development
+
+**Resolution:**
+- Testing is critical for smart contracts
+- Don't skip tests for speed
+- Write tests alongside code
+
+**Example:**
+
+```solidity
+// Comprehensive testing takes time
+// But is essential for smart contracts
+// Resolution: Always test thoroughly
+
+// ✅ GOOD - Comprehensive tests
+function test_Transfer_RevertsOnInsufficientBalance() public {
+    // Test edge case
+}
+
+function testFuzz_Transfer(uint256 amount) public {
+    // Fuzz test
+}
+
+// ❌ BAD - Skipping tests for speed
+// No tests - not acceptable
+```
+
+## Exception Documentation
+
+When deviating from guidelines, document the exception:
+
+```solidity
+// Exception: Gas optimization requires unchecked block
+// Rationale: i < length, so i++ cannot overflow (saves ~30 gas per iteration)
+// Risk: Low - overflow is impossible given loop condition
+unchecked {
+    i++;
+}
+```
+
+## Decision Process
+
+When facing a conflict:
+
+1. **Identify the Conflict**
+   - Which guidelines conflict?
+   - What are the trade-offs?
+
+2. **Apply Priority Hierarchy**
+   - Security first
+   - Then correctness
+   - Then optimization
+   - Then style
+
+3. **Document the Decision**
+   - Why was this approach chosen?
+   - What are the trade-offs?
+   - Are there alternatives?
+
+4. **Review with Team**
+   - Discuss significant conflicts
+   - Get consensus on approach
+   - Update guidelines if needed
+
+## Common Resolutions
+
+### Security vs Everything
+
+**Resolution:** Security always wins
+
+```solidity
+// Security requires nonReentrant modifier
+// Gas optimization might suggest removing it
+// Resolution: Keep modifier, optimize elsewhere
+```
+
+### Gas vs Readability
+
+**Resolution:** Optimize when measurable, document why
+
+```solidity
+// Gas optimization requires complex code
+// Resolution: Optimize with comments explaining why
+```
+
+### Style vs Convention
+
+**Resolution:** Follow project conventions, document exceptions
+
+```solidity
+// Style guide suggests one approach
+// Project convention uses another
+// Resolution: Follow project convention, document if needed
+```
+
+## Remember
+
+- **Security First** - Never compromise security
+- **Document Exceptions** - Explain why guidelines aren't followed
+- **Review Conflicts** - Discuss significant conflicts with team
+- **Update Guidelines** - If patterns emerge, update guidelines
+- **Consistency Matters** - Be consistent within project

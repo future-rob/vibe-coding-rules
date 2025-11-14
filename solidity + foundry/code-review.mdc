@@ -1,0 +1,320 @@
+---
+description: Code review checklist and best practices for Solidity Foundry projects
+globs:
+  - "**/*.sol"
+alwaysApply: true
+---
+
+# Code Review Guidelines
+
+## Review Philosophy
+
+Code review for smart contracts is critical due to the immutable nature of deployed contracts. Focus on:
+1. **Security** - Preventing vulnerabilities and exploits
+2. **Gas Efficiency** - Optimizing gas usage
+3. **Code Quality** - Ensuring code meets standards
+4. **Correctness** - Verifying logic and edge cases
+5. **Maintainability** - Ensuring code is readable and maintainable
+
+## Review Checklist
+
+### Security (CRITICAL)
+
+- [ ] Are there any reentrancy vulnerabilities?
+- [ ] Is access control properly implemented?
+- [ ] Are inputs validated (zero address, zero amount, etc.)?
+- [ ] Are integer overflows/underflows handled (or using 0.8.0+)?
+- [ ] Are external calls handled safely?
+- [ ] Is the checks-effects-interactions pattern followed?
+- [ ] Are there any front-running vulnerabilities?
+- [ ] Are timestamps used safely (not for exact equality)?
+- [ ] Is randomness properly implemented (not predictable)?
+- [ ] Are there any DoS vulnerabilities (unbounded loops)?
+- [ ] Are events emitted for all important state changes?
+- [ ] Are custom errors used (gas efficient)?
+
+### Functionality
+
+- [ ] Does the code work as intended?
+- [ ] Are edge cases handled (zero values, max values, etc.)?
+- [ ] Are error cases handled properly?
+- [ ] Is the code complete (no TODOs or placeholders)?
+- [ ] Are there any obvious bugs or logic errors?
+- [ ] Are state transitions correct?
+
+### Code Quality
+
+- [ ] Does the code follow style guidelines (`forge fmt`)?
+- [ ] Are variable names descriptive (no abbreviations)?
+- [ ] Is the code readable and maintainable?
+- [ ] Are there any code duplication that should be refactored?
+- [ ] Is contract structure organized properly?
+- [ ] Are imports organized correctly?
+
+### Architecture
+
+- [ ] Does the code follow architectural patterns?
+- [ ] Are interfaces used appropriately?
+- [ ] Is separation of concerns maintained?
+- [ ] Are libraries used for reusable code?
+- [ ] Is the code properly organized (correct file/directory structure)?
+- [ ] Are upgradeability patterns secure (if applicable)?
+
+### Testing
+
+- [ ] Are there adequate tests?
+- [ ] Do tests cover edge cases?
+- [ ] Are fuzz tests included for input validation?
+- [ ] Are invariant tests included (if applicable)?
+- [ ] Do tests follow testing guidelines?
+- [ ] Is test coverage adequate (100% for critical paths)?
+- [ ] Are tests readable and maintainable?
+- [ ] Are attack vectors tested (reentrancy, overflow, etc.)?
+
+### Gas Efficiency
+
+- [ ] Are storage reads cached in loops?
+- [ ] Are structs packed efficiently?
+- [ ] Are immutable variables used where possible?
+- [ ] Are events used instead of storage for logs?
+- [ ] Is calldata used for external function parameters?
+- [ ] Are batch operations implemented where beneficial?
+- [ ] Are unnecessary operations avoided?
+- [ ] Is gas profiling performed?
+
+### Documentation
+
+- [ ] Is NatSpec documentation present for all public/external functions?
+- [ ] Are events documented?
+- [ ] Are custom errors documented?
+- [ ] Are complex algorithms explained?
+- [ ] Are security considerations documented?
+- [ ] Is the code self-documenting (clear variable names)?
+
+### Error Handling
+
+- [ ] Are custom errors used (gas efficient)?
+- [ ] Are error messages clear and informative?
+- [ ] Are errors handled appropriately?
+- [ ] Are require statements used correctly?
+
+## Review Process
+
+### For Authors
+
+1. **Self-Review First**
+   - Review your own code before requesting review
+   - Run `forge build` and `forge test`
+   - Check for compiler warnings
+   - Review security considerations
+   - Check gas usage
+
+2. **Prepare PR**
+   - Write clear PR description
+   - Reference related issues
+   - Include security considerations
+   - Add gas impact if optimizing
+   - Keep PRs focused and small
+
+3. **Respond to Feedback**
+   - Be open to feedback, especially security concerns
+   - Ask questions if unclear
+   - Make requested changes promptly
+   - Explain your reasoning if you disagree
+
+### For Reviewers
+
+1. **Security First**
+   - Prioritize security vulnerabilities
+   - Look for common attack vectors
+   - Consider edge cases
+   - Think like an attacker
+
+2. **Be Constructive**
+   - Provide specific, actionable feedback
+   - Explain the "why" behind suggestions
+   - Acknowledge good code
+   - Be respectful and professional
+
+3. **Review Promptly**
+   - Review within 24 hours if possible
+   - Don't let PRs sit for days
+   - Communicate if you need more time
+   - Security fixes should be reviewed immediately
+
+## Common Review Comments
+
+### Security Issues
+
+```solidity
+// ❌ ISSUE - Reentrancy vulnerability
+function withdraw() external {
+    (bool success, ) = msg.sender.call{value: balances[msg.sender]}("");
+    require(success, "Transfer failed");
+    balances[msg.sender] = 0;  // State update after external call
+}
+
+// Comment: "This is vulnerable to reentrancy. Use checks-effects-interactions pattern."
+
+// ✅ SUGGESTION
+function withdraw() external nonReentrant {
+    uint256 amount = balances[msg.sender];
+    balances[msg.sender] = 0;  // Effects first
+    (bool success, ) = msg.sender.call{value: amount}("");  // Interactions last
+    require(success, "Transfer failed");
+}
+```
+
+### Gas Optimization
+
+```solidity
+// ❌ ISSUE - Multiple storage reads in loop
+function processUsers() external {
+    for (uint256 i = 0; i < users.length; i++) {
+        balances[users[i]] += 1;  // Storage read + write per iteration
+    }
+}
+
+// Comment: "Cache storage reads outside the loop to save gas."
+
+// ✅ SUGGESTION
+function processUsers() external {
+    uint256 userCount = users.length;
+    for (uint256 i = 0; i < userCount; i++) {
+        address user = users[i];
+        balances[user] += 1;
+    }
+}
+```
+
+### Code Quality
+
+```solidity
+// ❌ ISSUE - Abbreviated variable names
+function transfer(address to, uint256 amt) external {
+    uint256 bal = balances[msg.sender];
+    // ...
+}
+
+// Comment: "Please use full descriptive names: 'amount' instead of 'amt', 'balance' instead of 'bal'."
+
+// ✅ SUGGESTION
+function transfer(address recipient, uint256 amount) external {
+    uint256 senderBalance = balances[msg.sender];
+    // ...
+}
+```
+
+### Documentation
+
+```solidity
+// ❌ ISSUE - Missing NatSpec
+function transfer(address to, uint256 amount) external {
+    // ...
+}
+
+// Comment: "Please add NatSpec documentation for this public function."
+
+// ✅ SUGGESTION
+/// @notice Transfers tokens to the specified recipient
+/// @param to The address to transfer tokens to
+/// @param amount The amount of tokens to transfer
+/// @return success Returns true if transfer was successful
+function transfer(address to, uint256 amount) external returns (bool success) {
+    // ...
+}
+```
+
+## Security Review Focus Areas
+
+### 1. Reentrancy
+
+- Check all external calls
+- Verify checks-effects-interactions pattern
+- Look for state updates after external calls
+
+### 2. Access Control
+
+- Verify only authorized addresses can call functions
+- Check for missing access control modifiers
+- Verify ownership transfer logic
+
+### 3. Integer Overflow/Underflow
+
+- Check arithmetic operations
+- Verify using Solidity 0.8.0+ or SafeMath
+- Look for unchecked blocks
+
+### 4. Input Validation
+
+- Check for zero address validation
+- Verify zero amount checks
+- Look for bounds checking
+
+### 5. External Calls
+
+- Verify return values are checked
+- Check for proper error handling
+- Look for call vs transfer vs send usage
+
+## Gas Review Focus Areas
+
+### 1. Storage Operations
+
+- Check for unnecessary storage writes
+- Verify storage reads are cached
+- Look for struct packing opportunities
+
+### 2. Loops
+
+- Check for unbounded loops
+- Verify loop optimizations
+- Look for batch operations
+
+### 3. External Calls
+
+- Check for unnecessary external calls
+- Verify batch operations are used
+- Look for gas-efficient patterns
+
+## Testing Review
+
+### Test Coverage
+
+- Verify all public/external functions are tested
+- Check edge cases are covered
+- Verify error conditions are tested
+
+### Fuzz Testing
+
+- Check for fuzz tests on input validation
+- Verify fuzz tests cover edge cases
+- Look for comprehensive fuzz test coverage
+
+### Attack Vector Testing
+
+- Verify reentrancy attacks are tested
+- Check overflow/underflow tests
+- Verify access control tests
+
+## Approval Criteria
+
+A PR should be approved when:
+
+1. ✅ All security concerns are addressed
+2. ✅ All tests pass
+3. ✅ Code follows style guidelines
+4. ✅ NatSpec documentation is complete
+5. ✅ Gas optimizations are reasonable
+6. ✅ No compiler warnings
+7. ✅ Edge cases are handled
+8. ✅ Code is maintainable
+
+## Remember
+
+- **Security First** - Security is the highest priority
+- **Be Thorough** - Smart contracts are immutable
+- **Think Like an Attacker** - Consider attack vectors
+- **Gas Matters** - But not at expense of security
+- **Document Everything** - NatSpec for all public functions
+- **Test Comprehensively** - Cover all edge cases and attacks

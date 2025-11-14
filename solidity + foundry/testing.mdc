@@ -1,0 +1,573 @@
+---
+description: Testing philosophy and patterns for Solidity Foundry codebase
+globs:
+  - "**/test/**"
+  - "**/*.t.sol"
+alwaysApply: true
+---
+
+# Testing Guidelines
+
+## Testing Philosophy
+
+Our testing strategy focuses on **comprehensive coverage of all contract functionality, edge cases, and attack vectors**. We prioritize testing at multiple levels to ensure security, correctness, and gas efficiency.
+
+### Core Principles
+
+1. **Test All Public/External Functions** - Every public/external function must have tests
+2. **Test Edge Cases** - Boundary conditions, zero values, maximum values
+3. **Test Attack Vectors** - Reentrancy, overflow, access control, etc.
+4. **Test Gas Efficiency** - Track gas usage with snapshots
+5. **Fuzz Testing** - Use Foundry's fuzzing for input validation
+6. **Invariant Testing** - Test system invariants that should always hold
+7. **Fork Testing** - Test against mainnet state when needed
+
+## Testing Stack
+
+- **Framework:** [Foundry Test Suite](https://book.getfoundry.sh/forge/tests) (Forge)
+- **Base Contract:** `forge-std/Test.sol`
+- **Fuzzing:** Built-in fuzz testing
+- **Invariant Testing:** Foundry invariant testing
+- **Forking:** Mainnet/testnet fork testing
+- **Gas Reporting:** Built-in gas snapshots
+
+## Test Structure
+
+### Basic Test File
+
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import "forge-std/Test.sol";
+import "../src/MyContract.sol";
+
+contract MyContractTest is Test {
+    MyContract public myContract;
+    address public user = address(1);
+    address public owner = address(2);
+    
+    function setUp() public {
+        myContract = new MyContract();
+    }
+    
+    function test_BasicFunctionality() public {
+        // Arrange
+        uint256 expectedValue = 100;
+        
+        // Act
+        myContract.setValue(expectedValue);
+        
+        // Assert
+        assertEq(myContract.getValue(), expectedValue);
+    }
+}
+```
+
+### Test Organization
+
+Tests should mirror contract structure:
+
+```
+test/
+├── MyContract.t.sol          # Main contract tests
+├── MyContractFuzz.t.sol      # Fuzz tests
+├── MyContractInvariant.t.sol  # Invariant tests
+└── mocks/
+    └── MockERC20.sol          # Mock contracts
+```
+
+## Test Types
+
+### 1. Unit Tests
+
+Test individual functions in isolation:
+
+```solidity
+contract TokenTest is Test {
+    Token public token;
+    address public user = address(1);
+    
+    function setUp() public {
+        token = new Token();
+    }
+    
+    function test_Transfer() public {
+        // Arrange
+        uint256 amount = 100;
+        address recipient = address(2);
+        
+        // Act
+        token.transfer(recipient, amount);
+        
+        // Assert
+        assertEq(token.balanceOf(recipient), amount);
+        assertEq(token.balanceOf(address(this)), 0);
+    }
+    
+    function test_Transfer_InsufficientBalance() public {
+        // Arrange
+        uint256 amount = 1000;
+        address recipient = address(2);
+        
+        // Act & Assert
+        vm.expectRevert(Token.InsufficientBalance.selector);
+        token.transfer(recipient, amount);
+    }
+}
+```
+
+### 2. Integration Tests
+
+Test interactions between contracts:
+
+```solidity
+contract IntegrationTest is Test {
+    Token public token;
+    StakingContract public staking;
+    
+    function setUp() public {
+        token = new Token();
+        staking = new StakingContract(address(token));
+    }
+    
+    function test_StakeTokens() public {
+        // Arrange
+        uint256 amount = 1000;
+        token.mint(address(this), amount);
+        token.approve(address(staking), amount);
+        
+        // Act
+        staking.stake(amount);
+        
+        // Assert
+        assertEq(staking.stakedBalance(address(this)), amount);
+        assertEq(token.balanceOf(address(staking)), amount);
+    }
+}
+```
+
+### 3. Fuzz Tests
+
+Test with random inputs:
+
+```solidity
+contract TokenFuzzTest is Test {
+    Token public token;
+    
+    function setUp() public {
+        token = new Token();
+    }
+    
+    function testFuzz_Transfer(uint256 amount, address recipient) public {
+        // Arrange - Bound inputs
+        amount = bound(amount, 1, type(uint256).max);
+        recipient = address(uint160(uint256(keccak256(abi.encodePacked(recipient)))));
+        vm.assume(recipient != address(0));
+        
+        // Mint tokens
+        token.mint(address(this), amount);
+        
+        // Act
+        token.transfer(recipient, amount);
+        
+        // Assert
+        assertEq(token.balanceOf(recipient), amount);
+    }
+    
+    function testFuzz_Transfer_RevertsOnInsufficientBalance(uint256 balance, uint256 amount) public {
+        // Arrange
+        balance = bound(balance, 0, type(uint256).max - 1);
+        amount = bound(amount, balance + 1, type(uint256).max);
+        
+        token.mint(address(this), balance);
+        
+        // Act & Assert
+        vm.expectRevert(Token.InsufficientBalance.selector);
+        token.transfer(address(1), amount);
+    }
+}
+```
+
+### 4. Invariant Tests
+
+Test system invariants:
+
+```solidity
+contract TokenInvariantTest is Test {
+    Token public token;
+    
+    function setUp() public {
+        token = new Token();
+    }
+    
+    function invariant_TotalSupplyEqualsSumOfBalances() public {
+        uint256 totalSupply = token.totalSupply();
+        uint256 sumOfBalances = 0;
+        
+        // Sum all balances (simplified - in practice, track known addresses)
+        // This is a simplified example
+        assertEq(totalSupply, sumOfBalances);
+    }
+    
+    function invariant_NoNegativeBalances() public view {
+        // This should always hold - balances can't be negative
+        // Test with various addresses
+    }
+}
+```
+
+### 5. Fork Tests
+
+Test against mainnet state:
+
+```solidity
+contract ForkTest is Test {
+    IERC20 public dai = IERC20(0x6B175474E89094C44Da98b954EedeAC495271d0F);
+    
+    function setUp() public {
+        vm.createSelectFork(vm.envString("MAINNET_RPC_URL"));
+    }
+    
+    function test_Fork_DaiBalance() public {
+        address holder = 0x5d3a536E4D6DbD6114cc1Ead35777bAB948E3643;
+        uint256 balance = dai.balanceOf(holder);
+        assertGt(balance, 0);
+    }
+}
+```
+
+## Test Helpers
+
+### Cheatcodes
+
+Foundry provides cheatcodes via `vm`:
+
+```solidity
+contract CheatcodeExamples is Test {
+    function test_TimeManipulation() public {
+        // Warp time
+        vm.warp(block.timestamp + 1 days);
+        
+        // Roll block number
+        vm.roll(block.number + 100);
+        
+        // Set block timestamp
+        vm.timestamp(1640995200);
+    }
+    
+    function test_AddressManipulation() public {
+        // Prank (impersonate address)
+        vm.prank(address(1));
+        // Next call will be from address(1)
+        
+        // Start prank (persistent)
+        vm.startPrank(address(1));
+        // All calls will be from address(1)
+        vm.stopPrank();
+        
+        // Deal (give ETH)
+        vm.deal(address(1), 100 ether);
+        
+        // Label addresses for better traces
+        vm.label(address(1), "User");
+    }
+    
+    function test_ExpectRevert() public {
+        // Expect specific error
+        vm.expectRevert(Token.InsufficientBalance.selector);
+        token.transfer(address(1), 1000);
+        
+        // Expect revert with message
+        vm.expectRevert("Insufficient balance");
+        token.transfer(address(1), 1000);
+        
+        // Expect revert with custom error
+        vm.expectRevert(
+            abi.encodeWithSelector(Token.InsufficientBalance.selector, 1000, 100)
+        );
+        token.transfer(address(1), 1000);
+    }
+    
+    function test_ExpectEmit() public {
+        // Expect event emission
+        vm.expectEmit(true, true, false, true);
+        emit Transfer(address(this), address(1), 100);
+        token.transfer(address(1), 100);
+    }
+    
+    function test_RecordLogs() public {
+        // Record logs
+        vm.recordLogs();
+        token.transfer(address(1), 100);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        
+        // Assert log
+        assertEq(logs.length, 1);
+    }
+}
+```
+
+### Fixtures
+
+Create reusable test fixtures:
+
+```solidity
+contract TestFixtures is Test {
+    Token public token;
+    address public owner;
+    address public user1;
+    address public user2;
+    
+    function setUp() public {
+        owner = address(this);
+        user1 = address(1);
+        user2 = address(2);
+        
+        token = new Token();
+        token.mint(owner, 10000);
+    }
+    
+    function _mintTokens(address to, uint256 amount) internal {
+        token.mint(to, amount);
+    }
+    
+    function _transferTokens(address from, address to, uint256 amount) internal {
+        vm.prank(from);
+        token.transfer(to, amount);
+    }
+}
+```
+
+## Assertions
+
+### Standard Assertions
+
+```solidity
+// Equality
+assertEq(actual, expected);
+assertEq(actual, expected, "Custom error message");
+
+// Inequality
+assertNotEq(actual, expected);
+
+// Greater/Less than
+assertGt(a, b);  // a > b
+assertGe(a, b);  // a >= b
+assertLt(a, b);  // a < b
+assertLe(a, b);  // a <= b
+
+// Boolean
+assertTrue(condition);
+assertFalse(condition);
+
+// Approximate equality (for floating point)
+assertApproxEqAbs(actual, expected, maxDelta);
+assertApproxEqRel(actual, expected, maxPercentDelta);
+
+// Array equality
+assertEq(actualArray, expectedArray);
+
+// String equality
+assertEq(actualString, expectedString);
+```
+
+## Gas Testing
+
+### Gas Snapshots
+
+Track gas usage:
+
+```solidity
+contract GasTest is Test {
+    Token public token;
+    
+    function setUp() public {
+        token = new Token();
+    }
+    
+    function test_Gas_Transfer() public {
+        token.mint(address(this), 1000);
+        
+        // Snapshot gas before
+        uint256 gasBefore = gasleft();
+        token.transfer(address(1), 100);
+        uint256 gasUsed = gasBefore - gasleft();
+        
+        // Or use Foundry's snapshot
+        snapStart("transfer");
+        token.transfer(address(1), 100);
+        snapEnd();
+    }
+}
+```
+
+### Gas Reporting
+
+Run tests with gas reporting:
+
+```bash
+forge test --gas-report
+```
+
+## Test Coverage
+
+### Coverage Goals
+
+- **Critical Functions:** 100% coverage
+- **Public/External Functions:** 100% coverage
+- **Edge Cases:** All boundary conditions tested
+- **Error Paths:** All revert conditions tested
+
+### View Coverage
+
+```bash
+forge coverage
+```
+
+## Best Practices
+
+### 1. Descriptive Test Names
+
+```solidity
+// ✅ GOOD - Descriptive names
+function test_Transfer_RevertsWhenInsufficientBalance() public {
+    // ...
+}
+
+function test_Transfer_UpdatesBalancesCorrectly() public {
+    // ...
+}
+
+// ❌ BAD - Vague names
+function test1() public {
+    // ...
+}
+
+function testTransfer() public {
+    // ...
+}
+```
+
+### 2. Arrange-Act-Assert Pattern
+
+```solidity
+function test_Transfer() public {
+    // Arrange
+    uint256 amount = 100;
+    address recipient = address(1);
+    token.mint(address(this), amount);
+    
+    // Act
+    token.transfer(recipient, amount);
+    
+    // Assert
+    assertEq(token.balanceOf(recipient), amount);
+    assertEq(token.balanceOf(address(this)), 0);
+}
+```
+
+### 3. Test Edge Cases
+
+```solidity
+function test_Transfer_ZeroAmount() public {
+    token.transfer(address(1), 0);
+    assertEq(token.balanceOf(address(1)), 0);
+}
+
+function test_Transfer_MaxAmount() public {
+    uint256 maxAmount = type(uint256).max;
+    token.mint(address(this), maxAmount);
+    token.transfer(address(1), maxAmount);
+    assertEq(token.balanceOf(address(1)), maxAmount);
+}
+
+function test_Transfer_ToZeroAddress() public {
+    vm.expectRevert(Token.InvalidAddress.selector);
+    token.transfer(address(0), 100);
+}
+```
+
+### 4. Test Attack Vectors
+
+```solidity
+function test_ReentrancyAttack() public {
+    // Test reentrancy protection
+    ReentrancyAttacker attacker = new ReentrancyAttacker();
+    vm.expectRevert(ReentrancyGuard.ReentrantCall.selector);
+    attacker.attack();
+}
+
+function test_OverflowAttack() public {
+    // Test overflow protection (if using <0.8.0)
+    // In 0.8.0+, this is automatic
+}
+```
+
+### 5. Use Mocks
+
+```solidity
+contract MockERC20 is ERC20 {
+    constructor() ERC20("Mock", "MOCK") {}
+    
+    function mint(address to, uint256 amount) external {
+        _mint(to, amount);
+    }
+}
+```
+
+## Running Tests
+
+### Basic Commands
+
+```bash
+# Run all tests
+forge test
+
+# Run specific test
+forge test --match-test test_Transfer
+
+# Run with verbosity
+forge test -vvv
+
+# Run with gas reporting
+forge test --gas-report
+
+# Run fuzz tests
+forge test --fuzz-runs 1000
+
+# Run invariant tests
+forge test --match-contract InvariantTest
+
+# Run fork tests
+forge test --fork-url $MAINNET_RPC_URL
+```
+
+### CI/CD Integration
+
+```yaml
+# .github/workflows/test.yml
+name: Test
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: foundry-rs/foundry-toolchain@v1
+      - run: forge test
+      - run: forge coverage
+```
+
+## Remember
+
+- **Test Everything** - All public/external functions
+- **Test Edge Cases** - Zero, max, boundary values
+- **Test Attacks** - Reentrancy, overflow, access control
+- **Use Fuzzing** - Foundry's built-in fuzzing
+- **Track Gas** - Use gas snapshots
+- **Descriptive Names** - Clear test function names
+- **Arrange-Act-Assert** - Clear test structure
+- **Coverage** - Aim for 100% on critical paths

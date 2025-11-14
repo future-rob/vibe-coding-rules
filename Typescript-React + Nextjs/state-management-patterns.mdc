@@ -1,0 +1,681 @@
+---
+description: State management patterns and best practices using Zustand
+globs:
+  - "**/stores/**"
+  - "**/hooks/**"
+  - "**/*.store.ts"
+  - "**/*.store.tsx"
+alwaysApply: true
+---
+
+# State Management Patterns
+
+## Philosophy
+
+Our state management approach with Zustand focuses on:
+
+1. **Simplicity** - Keep stores small and focused
+2. **Performance** - Minimize re-renders through selective subscriptions
+3. **Type Safety** - Leverage TypeScript for predictable state
+4. **Separation of Concerns** - UI state vs application state
+
+## When to Use Zustand
+
+### Use Zustand For:
+
+- **Global Application State** - User data, authentication status
+- **Cross-Component Communication** - State shared between unrelated components
+- **Persistent State** - Data that needs to survive navigation
+- **Complex State Logic** - When useState becomes unwieldy
+
+### Use Local State For:
+
+- **UI-Only State** - Modal open/close, form inputs, hover states
+- **Component-Specific Data** - Data that doesn't need to be shared
+- **Temporary State** - Values that reset on unmount
+
+## Store Organization
+
+### 1. Single Responsibility Stores
+
+```typescript
+// ❌ BAD - Monolithic store
+const useAppStore = create((set) => ({
+  // User stuff
+  user: null,
+  isAuthenticated: false,
+  login: () => {},
+  logout: () => {},
+
+  // UI stuff
+  sidebarOpen: false,
+  theme: "light",
+
+  // Data stuff
+  workflows: [],
+  posts: [],
+  comments: [],
+}));
+
+// ✅ GOOD - Focused stores
+// stores/userStore.ts
+interface UserState {
+  user: User | null;
+  isAuthenticated: boolean;
+  login: (credentials: LoginCredentials) => Promise<void>;
+  logout: () => Promise<void>;
+  updateProfile: (updates: Partial<User>) => Promise<void>;
+}
+
+export const useUserStore = create<UserState>((set) => ({
+  user: null,
+  isAuthenticated: false,
+
+  login: async (credentials) => {
+    const user = await authService.login(credentials);
+    set({ user, isAuthenticated: true });
+  },
+
+  logout: async () => {
+    await authService.logout();
+    set({ user: null, isAuthenticated: false });
+  },
+
+  updateProfile: async (updates) => {
+    set((state) => ({
+      user: state.user ? { ...state.user, ...updates } : null,
+    }));
+  },
+}));
+
+// stores/workflowStore.ts
+interface WorkflowState {
+  workflows: Workflow[];
+  selectedWorkflowId: string | null;
+  isLoading: boolean;
+  error: Error | null;
+
+  fetchWorkflows: () => Promise<void>;
+  selectWorkflow: (workflowId: string) => void;
+  createWorkflow: (data: CreateWorkflowData) => Promise<void>;
+  updateWorkflow: (
+    workflowId: string,
+    updates: Partial<Workflow>
+  ) => Promise<void>;
+  deleteWorkflow: (workflowId: string) => Promise<void>;
+}
+
+export const useWorkflowStore = create<WorkflowState>((set, get) => ({
+  workflows: [],
+  selectedWorkflowId: null,
+  isLoading: false,
+  error: null,
+
+  fetchWorkflows: async () => {
+    set({ isLoading: true, error: null });
+    try {
+      const workflows = await workflowService.getAll();
+      set({ workflows, isLoading: false });
+    } catch (error) {
+      set({ error: error as Error, isLoading: false });
+    }
+  },
+
+  selectWorkflow: (workflowId) => set({ selectedWorkflowId: workflowId }),
+
+  createWorkflow: async (data) => {
+    const workflow = await workflowService.create(data);
+    set((state) => ({
+      workflows: [...state.workflows, workflow],
+    }));
+  },
+
+  updateWorkflow: async (workflowId, updates) => {
+    const updated = await workflowService.update(workflowId, updates);
+    set((state) => ({
+      workflows: state.workflows.map((workflow) =>
+        workflow.id === workflowId ? updated : workflow
+      ),
+    }));
+  },
+
+  deleteWorkflow: async (workflowId) => {
+    await workflowService.delete(workflowId);
+    set((state) => ({
+      workflows: state.workflows.filter(
+        (workflow) => workflow.id !== workflowId
+      ),
+      selectedWorkflowId:
+        state.selectedWorkflowId === workflowId
+          ? null
+          : state.selectedWorkflowId,
+    }));
+  },
+}));
+```
+
+### 2. Store File Structure
+
+```
+src/stores/
+├── index.ts           // Re-exports all stores
+├── userStore.ts       // User authentication and profile
+├── workflowStore.ts   // Workflow management
+├── uiStore.ts        // Global UI state (theme, sidebar)
+├── types.ts          // Shared types for stores
+└── __tests__/
+    └── userStore.test.ts
+```
+
+## Performance Patterns
+
+### 1. Selective Subscriptions
+
+```typescript
+// ❌ BAD - Component re-renders on any store change
+function UserProfile() {
+  const store = useUserStore();
+  return <div>{store.user?.name}</div>;
+}
+
+// ✅ GOOD - Only re-renders when user.name changes
+function UserProfile() {
+  const userName = useUserStore((state) => state.user?.name);
+  return <div>{userName}</div>;
+}
+
+// ✅ BETTER - Multiple selections with shallow comparison
+import { shallow } from "zustand/shallow";
+
+function UserCard() {
+  const { name, email, avatar } = useUserStore(
+    (state) => ({
+      name: state.user?.name,
+      email: state.user?.email,
+      avatar: state.user?.avatar,
+    }),
+    shallow
+  );
+
+  return (
+    <Card>
+      <Avatar src={avatar} />
+      <Text>{name}</Text>
+      <Text>{email}</Text>
+    </Card>
+  );
+}
+```
+
+### 2. Computed Values with Selectors
+
+```typescript
+// ❌ BAD - Computing in component
+function WorkflowList() {
+  const workflows = useWorkflowStore((state) => state.workflows);
+  const activeWorkflows = workflows.filter(
+    (workflow) => workflow.status === "active"
+  );
+
+  return <List items={activeWorkflows} />;
+}
+
+// ✅ GOOD - Memoized selector
+const selectActiveWorkflows = (state: WorkflowState) =>
+  state.workflows.filter((workflow) => workflow.status === "active");
+
+function WorkflowList() {
+  const activeWorkflows = useWorkflowStore(selectActiveWorkflows);
+  return <List items={activeWorkflows} />;
+}
+
+// ✅ BETTER - Reusable selectors
+// stores/workflowStore.ts
+export const workflowSelectors = {
+  activeWorkflows: (state: WorkflowState) =>
+    state.workflows.filter((workflow) => workflow.status === "active"),
+
+  selectedWorkflow: (state: WorkflowState) =>
+    state.workflows.find(
+      (workflow) => workflow.id === state.selectedWorkflowId
+    ),
+
+  workflowById: (workflowId: string) => (state: WorkflowState) =>
+    state.workflows.find((workflow) => workflow.id === workflowId),
+};
+
+// Usage
+const activeWorkflows = useWorkflowStore(workflowSelectors.activeWorkflows);
+const workflow = useWorkflowStore(workflowSelectors.workflowById(workflowId));
+```
+
+### 3. Transient Updates (No Re-render)
+
+```typescript
+// For updates that shouldn't trigger re-renders
+interface StoreWithTransient {
+  bears: number;
+  increaseBears: () => void;
+  // Transient state
+  socket: WebSocket | null;
+  setSocket: (socket: WebSocket) => void;
+}
+
+const useStore = create<StoreWithTransient>((set) => ({
+  bears: 0,
+  increaseBears: () => set((state) => ({ bears: state.bears + 1 })),
+
+  // Using ref to avoid re-renders
+  socket: null,
+  setSocket: (socket) => {
+    useStore.setState({ socket }, false, { type: "setSocket", socket });
+  },
+}));
+
+// Or use subscribeWithSelector
+const useStore = create(
+  subscribeWithSelector((set) => ({
+    bears: 0,
+    socket: null,
+    // ...
+  }))
+);
+```
+
+## Advanced Patterns
+
+### 1. Middleware and DevTools
+
+```typescript
+import { devtools, persist } from "zustand/middleware";
+
+interface UserState {
+  user: User | null;
+  preferences: UserPreferences;
+  // ... actions
+}
+
+export const useUserStore = create<UserState>()(
+  devtools(
+    persist(
+      (set) => ({
+        user: null,
+        preferences: DEFAULT_PREFERENCES,
+
+        updatePreferences: (updates) =>
+          set(
+            (state) => ({
+              preferences: { ...state.preferences, ...updates },
+            }),
+            false,
+            "updatePreferences" // Action name in DevTools
+          ),
+      }),
+      {
+        name: "user-storage", // localStorage key
+        partialize: (state) => ({
+          // Only persist preferences, not user data
+          preferences: state.preferences,
+        }),
+      }
+    ),
+    {
+      name: "UserStore", // DevTools instance name
+    }
+  )
+);
+```
+
+### 2. Async Actions with Loading States
+
+```typescript
+interface DataState<T> {
+  data: T | null;
+  isLoading: boolean;
+  error: Error | null;
+}
+
+interface PostsState extends DataState<Post[]> {
+  fetchPosts: () => Promise<void>;
+  createPost: (data: CreatePostData) => Promise<void>;
+  optimisticUpdate: (postId: string, updates: Partial<Post>) => void;
+  confirmUpdate: (postId: string, updatedPost: Post) => void;
+  rollbackUpdate: (postId: string, originalPost: Post) => void;
+}
+
+export const usePostsStore = create<PostsState>((set, get) => ({
+  data: null,
+  isLoading: false,
+  error: null,
+
+  fetchPosts: async () => {
+    set({ isLoading: true, error: null });
+    try {
+      const posts = await postsService.getAll();
+      set({ data: posts, isLoading: false });
+    } catch (error) {
+      set({ error: error as Error, isLoading: false });
+    }
+  },
+
+  createPost: async (data) => {
+    // Optimistic update
+    const tempId = `temp-${Date.now()}`;
+    const tempPost: Post = { ...data, id: tempId, createdAt: new Date() };
+
+    set((state) => ({
+      data: state.data ? [...state.data, tempPost] : [tempPost],
+    }));
+
+    try {
+      const newPost = await postsService.create(data);
+      // Replace temp post with real one
+      set((state) => ({
+        data:
+          state.data?.map((post) => (post.id === tempId ? newPost : post)) ||
+          null,
+      }));
+    } catch (error) {
+      // Rollback on error
+      set((state) => ({
+        data: state.data?.filter((post) => post.id !== tempId) || null,
+        error: error as Error,
+      }));
+    }
+  },
+
+  optimisticUpdate: (postId, updates) => {
+    set((state) => ({
+      data:
+        state.data?.map((post) =>
+          post.id === postId ? { ...post, ...updates } : post
+        ) || null,
+    }));
+  },
+
+  confirmUpdate: (postId, updatedPost) => {
+    set((state) => ({
+      data:
+        state.data?.map((post) => (post.id === postId ? updatedPost : post)) ||
+        null,
+    }));
+  },
+
+  rollbackUpdate: (postId, originalPost) => {
+    set((state) => ({
+      data:
+        state.data?.map((post) => (post.id === postId ? originalPost : post)) ||
+        null,
+    }));
+  },
+}));
+```
+
+### 3. Store Composition
+
+```typescript
+// Combining multiple stores
+interface CombinedState {
+  user: User | null;
+  workflows: Workflow[];
+  isAuthenticated: boolean;
+}
+
+export const useCombinedStore = create<CombinedState>(() => ({
+  get user() {
+    return useUserStore.getState().user;
+  },
+  get workflows() {
+    return useWorkflowStore.getState().workflows;
+  },
+  get isAuthenticated() {
+    return useUserStore.getState().isAuthenticated;
+  },
+}));
+
+// Or using hooks
+export function useAuthenticatedWorkflows() {
+  const isAuthenticated = useUserStore((state) => state.isAuthenticated);
+  const workflows = useWorkflowStore((state) => state.workflows);
+
+  return isAuthenticated ? workflows : [];
+}
+```
+
+### 4. Store Slices Pattern
+
+```typescript
+// For very large stores, split into slices
+import { StateCreator } from "zustand";
+
+interface BearSlice {
+  bears: number;
+  addBear: () => void;
+}
+
+interface FishSlice {
+  fishes: number;
+  addFish: () => void;
+}
+
+interface BoundStore extends BearSlice, FishSlice {}
+
+const createBearSlice: StateCreator<BoundStore, [], [], BearSlice> = (set) => ({
+  bears: 0,
+  addBear: () => set((state) => ({ bears: state.bears + 1 })),
+});
+
+const createFishSlice: StateCreator<BoundStore, [], [], FishSlice> = (set) => ({
+  fishes: 0,
+  addFish: () => set((state) => ({ fishes: state.fishes + 1 })),
+});
+
+const useBoundStore = create<BoundStore>()((...a) => ({
+  ...createBearSlice(...a),
+  ...createFishSlice(...a),
+}));
+```
+
+## Testing Zustand Stores
+
+```typescript
+// __tests__/userStore.test.ts
+import { renderHook, act } from "@testing-library/react";
+import { useUserStore } from "../userStore";
+
+// Reset store between tests
+beforeEach(() => {
+  useUserStore.setState({ user: null, isAuthenticated: false });
+});
+
+describe("UserStore", () => {
+  it("should login user successfully", async () => {
+    const { result } = renderHook(() => useUserStore());
+
+    await act(async () => {
+      await result.current.login({
+        email: "test@example.com",
+        password: "password",
+      });
+    });
+
+    expect(result.current.isAuthenticated).toBe(true);
+    expect(result.current.user).toMatchObject({
+      email: "test@example.com",
+    });
+  });
+
+  it("should select specific state", () => {
+    // Set initial state
+    useUserStore.setState({
+      user: { id: "1", name: "Test User", email: "test@example.com" },
+    });
+
+    // Test selector
+    const { result } = renderHook(() =>
+      useUserStore((state) => state.user?.name)
+    );
+
+    expect(result.current).toBe("Test User");
+  });
+});
+```
+
+## Common Patterns
+
+### 1. Form State Management
+
+```typescript
+// For complex forms, keep in Zustand
+interface FormState {
+  values: FormValues;
+  errors: FormErrors;
+  touched: Set<string>;
+  isSubmitting: boolean;
+
+  setFieldValue: (field: string, value: any) => void;
+  setFieldError: (field: string, error: string) => void;
+  setFieldTouched: (field: string) => void;
+  reset: () => void;
+  submit: () => Promise<void>;
+}
+
+// For simple forms, use local state or React Hook Form
+```
+
+### 2. Real-time Updates
+
+```typescript
+interface RealtimeState {
+  messages: Message[];
+  subscribe: () => () => void; // Returns unsubscribe
+}
+
+export const useMessagesStore = create<RealtimeState>((set, get) => ({
+  messages: [],
+
+  subscribe: () => {
+    const ws = new WebSocket("ws://localhost:3000");
+
+    ws.onmessage = (event) => {
+      const message = JSON.parse(event.data);
+      set((state) => ({
+        messages: [...state.messages, message],
+      }));
+    };
+
+    // Return cleanup function
+    return () => ws.close();
+  },
+}));
+
+// Usage with cleanup
+function MessagesComponent() {
+  const messages = useMessagesStore((state) => state.messages);
+  const subscribe = useMessagesStore((state) => state.subscribe);
+
+  useEffect(() => {
+    const unsubscribe = subscribe();
+    return unsubscribe;
+  }, [subscribe]);
+
+  return <MessagesList messages={messages} />;
+}
+```
+
+### 3. Derived State
+
+```typescript
+// Don't store derived state
+interface BadExample {
+  items: Item[];
+  filteredItems: Item[]; // ❌ Derived from items
+  filter: string;
+}
+
+// Do compute on demand
+interface GoodExample {
+  items: Item[];
+  filter: string;
+}
+
+const selectFilteredItems = (state: GoodExample) =>
+  state.items.filter((item) =>
+    item.name.toLowerCase().includes(state.filter.toLowerCase())
+  );
+```
+
+## Best Practices
+
+### DO:
+
+1. **Keep stores focused** - One domain per store
+2. **Use TypeScript** - Type your stores completely
+3. **Normalize data** - Store IDs and use selectors for lookups
+4. **Handle errors** - Include error state in async operations
+5. **Use selectors** - For computed values and performance
+6. **Test stores** - They contain business logic
+
+### DON'T:
+
+1. **Don't overuse global state** - Local state is often sufficient
+2. **Don't store derived state** - Compute it with selectors
+3. **Don't mutate state directly** - Always use set()
+4. **Don't create huge stores** - Split them up
+5. **Don't store UI-only state globally** - Keep it local
+
+## Migration from Other State Management
+
+### From Redux:
+
+- Actions → Store methods
+- Reducers → set() calls
+- Selectors → Zustand selectors
+- Middleware → Zustand middleware
+- Connect → useStore hook
+
+### From Context API:
+
+- Multiple contexts → Multiple stores
+- useContext → useStore
+- Provider wrapping → No wrapping needed
+- Performance issues → Solved with selectors
+
+## Debugging
+
+### 1. Enable Redux DevTools
+
+```typescript
+const useStore = create(
+  devtools((set) => ({
+    // your store
+  }))
+);
+```
+
+### 2. Log State Changes
+
+```typescript
+const useStore = create((set, get) => ({
+  // Wrap set for logging
+  updateUser: (user) => {
+    console.log("Before:", get().user);
+    set({ user });
+    console.log("After:", get().user);
+  },
+}));
+```
+
+### 3. Inspect Current State
+
+```typescript
+// In console
+useUserStore.getState();
+
+// In component
+const debugState = () => {
+  console.log("Current state:", useUserStore.getState());
+};
+```
+
+Remember: Zustand is powerful but lightweight. Use it wisely to keep your application state manageable and performant.

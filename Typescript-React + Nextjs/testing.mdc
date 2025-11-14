@@ -1,0 +1,356 @@
+---
+description: Testing philosophy and patterns for the codebase
+globs:
+  - "**/*.test.ts"
+  - "**/*.test.tsx"
+  - "**/*.spec.ts"
+  - "**/*.spec.tsx"
+alwaysApply: true
+---
+
+# Testing Guidelines
+
+## Testing Philosophy
+
+Our testing strategy focuses on **testing logic and behavior, not implementation details**. We prioritize testing at the appropriate layer of abstraction to ensure maintainability and meaningful test coverage.
+
+### Core Principles
+
+1. **Test Business Logic in Services** - All business logic should reside in service functions and be thoroughly tested
+2. **Test Authentication/Authorization Separately** - HOFs (Higher-Order Functions) like `withAuthentication` should have their own isolated tests
+3. **Backend API Routes Test Integration** - Test the service layer, not the API route handlers directly
+4. **Frontend is Tested Manually** - UI components and user interactions are validated through manual testing
+5. **No UI Component Tests** - We don't write automated tests for React components
+
+## Testing Stack
+
+- **Framework:** [Jest](https://jestjs.io/)
+- **Utilities:** React Testing Library may be used for testing custom hooks and React utilities, but **NOT for component rendering tests**
+- **TypeScript Support:** `ts-jest`
+- **Mocking:** Jest mocks for external dependencies
+
+**Note:** React Testing Library is available in the stack but should only be used for:
+
+- Testing custom React hooks (`useWorkflowForm`, `useUserPreferences`, etc.)
+- Testing React utilities that need React context
+- **NOT** for testing component rendering, user interactions, or UI behavior
+
+## What to Test
+
+### 1. Service Layer (`src/services/**`)
+
+**Priority: CRITICAL** - This is where all business logic lives
+
+```typescript
+// src/services/__tests__/userService.test.ts
+import { getUserProfile, updateUserProfile } from "../userService";
+import { supabase } from "@/lib/supabase";
+
+jest.mock("@/lib/supabase");
+
+describe("UserService", () => {
+  describe("getUserProfile", () => {
+    it("should fetch user profile successfully", async () => {
+      const mockUser = { id: "user-123", name: "Test User" };
+      (supabase.from as jest.Mock).mockReturnValue({
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            single: jest
+              .fn()
+              .mockResolvedValue({ data: mockUser, error: null }),
+          }),
+        }),
+      });
+
+      const result = await getUserProfile("user-123");
+      expect(result).toEqual(mockUser);
+    });
+
+    it("should handle database errors gracefully", async () => {
+      // Test error scenarios
+    });
+  });
+});
+```
+
+### 2. Higher-Order Functions (`src/utils/api/`, `src/utils/auth/`)
+
+**Priority: HIGH** - Authentication and middleware logic must be bulletproof
+
+```typescript
+// src/utils/api/__tests__/withAuthentication.test.ts
+import { withAuthentication } from "../withAuthentication";
+import { NextApiRequest, NextApiResponse } from "next";
+import { createMocks } from "node-mocks-http";
+
+describe("withAuthentication HOF", () => {
+  it("should allow authenticated requests to proceed", async () => {
+    const handler = jest.fn((req, res) =>
+      res.status(200).json({ success: true })
+    );
+    const wrapped = withAuthentication(handler);
+
+    const { req, res } = createMocks({
+      headers: { authorization: "Bearer valid-token" },
+    });
+
+    await wrapped(req, res);
+    expect(handler).toHaveBeenCalledWith(
+      expect.objectContaining({ user: expect.any(Object) }),
+      res
+    );
+  });
+
+  it("should reject unauthenticated requests", async () => {
+    const handler = jest.fn();
+    const wrapped = withAuthentication(handler);
+
+    const { req, res } = createMocks();
+    await wrapped(req, res);
+
+    expect(res._getStatusCode()).toBe(401);
+    expect(handler).not.toHaveBeenCalled();
+  });
+});
+```
+
+### 3. Utility Functions (`src/utils/**`)
+
+**Priority: MEDIUM** - Pure functions and helpers
+
+```typescript
+// src/utils/__tests__/formatters.test.ts
+import { formatCurrency, parseDate } from "../formatters";
+
+describe("formatCurrency", () => {
+  it("should format USD correctly", () => {
+    expect(formatCurrency(1234.56, "USD")).toBe("$1,234.56");
+  });
+});
+```
+
+### 4. Validation Schemas (`src/schemas/**`)
+
+**Priority: HIGH** - Data integrity is critical
+
+```typescript
+// src/schemas/__tests__/userSchema.test.ts
+import { userUpdateSchema } from "../userSchema";
+
+describe("userUpdateSchema", () => {
+  it("should validate correct user data", () => {
+    const validData = { name: "John Doe", email: "john@example.com" };
+    expect(() => userUpdateSchema.validateSync(validData)).not.toThrow();
+  });
+
+  it("should reject invalid email", () => {
+    const invalidData = { email: "not-an-email" };
+    expect(() => userUpdateSchema.validateSync(invalidData)).toThrow();
+  });
+});
+```
+
+## What NOT to Test
+
+### 1. API Route Handlers
+
+Don't test the route handlers directly - they should be thin wrappers around services:
+
+```typescript
+// ❌ DON'T DO THIS
+test('POST /api/users/create', async () => {
+  const res = await fetch('/api/users/create', { ... });
+  // Testing the HTTP layer
+});
+
+// ✅ DO THIS INSTEAD
+test('createUser service', async () => {
+  const user = await createUser({ ... });
+  // Test the service directly
+});
+```
+
+### 2. React Components
+
+No automated component testing - rely on manual testing:
+
+```typescript
+// ❌ NO COMPONENT TESTS - Don't test component rendering
+test("Button renders correctly", () => {
+  render(<Button />);
+  // We don't do this
+});
+
+// ✅ ALLOWED - Testing custom hooks (not components)
+import { renderHook } from "@testing-library/react";
+test("useWorkflowForm initializes correctly", () => {
+  const { result } = renderHook(() => useWorkflowForm());
+  expect(result.current.values).toEqual({});
+});
+```
+
+**When React Testing Library is acceptable:**
+
+- Testing custom hooks that contain business logic
+- Testing utilities that use React context
+- **Never** for testing component rendering, props, or user interactions
+
+### 3. Next.js Page Components
+
+Pages are just components - test manually:
+
+```typescript
+// ❌ NO PAGE TESTS
+test("Dashboard page loads", () => {
+  render(<DashboardPage />);
+  // Manual testing only
+});
+```
+
+## Test Organization
+
+```
+src/
+├── services/
+│   ├── __tests__/
+│   │   ├── userService.test.ts
+│   │   ├── workflowService.test.ts
+│   │   └── authService.test.ts
+│   ├── userService.ts
+│   └── workflowService.ts
+├── utils/
+│   ├── api/
+│   │   └── __tests__/
+│   │       ├── withAuthentication.test.ts
+│   │       └── withValidation.test.ts
+│   └── __tests__/
+│       └── helpers.test.ts
+└── schemas/
+    └── __tests__/
+        └── validationSchemas.test.ts
+```
+
+## Testing Best Practices
+
+### 1. Test Behavior, Not Implementation
+
+```typescript
+// ❌ BAD - Testing implementation details
+expect(service._privateMethod()).toBe("something");
+expect(mockDatabase.query).toHaveBeenCalledWith("SELECT * FROM users");
+
+// ✅ GOOD - Testing behavior
+expect(await service.getActiveUsers()).toHaveLength(3);
+expect(await service.findUserByEmail("test@example.com")).toMatchObject({
+  email: "test@example.com",
+});
+```
+
+### 2. Use Descriptive Test Names
+
+```typescript
+// ❌ BAD
+test("test user creation");
+test("error case");
+
+// ✅ GOOD
+test("should create user with valid email and password");
+test("should throw ValidationError when email is missing");
+```
+
+### 3. Isolate External Dependencies
+
+```typescript
+// Always mock external services
+jest.mock("@/lib/supabase");
+jest.mock("@/lib/emailService");
+
+beforeEach(() => {
+  jest.clearAllMocks();
+});
+```
+
+### 4. Test Edge Cases in Services
+
+```typescript
+describe("WorkflowService", () => {
+  test("should handle empty workflow steps", async () => {});
+  test("should handle circular dependencies", async () => {});
+  test("should handle missing required fields", async () => {});
+  test("should handle concurrent modifications", async () => {});
+});
+```
+
+## Running Tests
+
+```bash
+# Run all tests
+npm test
+
+# Run tests in watch mode during development
+npm run test:watch
+
+# Run tests with coverage (aim for 100% coverage on services)
+npm run test:coverage
+
+# Run specific test file
+npm test src/services/__tests__/userService.test.ts
+```
+
+## Coverage Goals
+
+- **Services (`src/services/`)**: 100% coverage required
+- **HOFs (`src/utils/api/`)**: 100% coverage required
+- **Validation Schemas**: 100% coverage required
+- **Utility Functions**: 90%+ coverage recommended
+- **Overall**: Focus on critical business logic, not lines of code
+
+## Mocking Guidelines
+
+### 1. Mock at the Boundary
+
+```typescript
+// Mock external services, not internal modules
+jest.mock("@/lib/supabase"); // ✅ Good
+jest.mock("../internalHelper"); // ❌ Avoid
+```
+
+### 2. Use Consistent Mock Patterns
+
+```typescript
+// Create reusable mock factories
+export const mockSupabaseUser = (overrides = {}) => ({
+  id: "user-123",
+  email: "test@example.com",
+  created_at: new Date().toISOString(),
+  ...overrides,
+});
+```
+
+## Integration Testing
+
+While we primarily focus on unit tests, some integration between services may need testing:
+
+```typescript
+// When services interact, test the integration
+describe("AuthService + UserService integration", () => {
+  test("should create user profile after successful signup", async () => {
+    const credentials = { email: "new@example.com", password: "secure123" };
+    const { user } = await authService.signUp(credentials);
+    const profile = await userService.getUserProfile(user.id);
+
+    expect(profile).toMatchObject({
+      userId: user.id,
+      email: credentials.email,
+    });
+  });
+});
+```
+
+## Remember
+
+- **Frontend = Manual Testing**: Trust your eyes and hands for UI testing
+- **Backend = Automated Testing**: Services must be thoroughly tested
+- **Logic Lives in Services**: Keep API routes thin, test services
+- **Test the Contract**: Focus on inputs/outputs, not how it works
+- **Fast Feedback**: Tests should run quickly to encourage TDD

@@ -1,0 +1,290 @@
+---
+description: Code review checklist and best practices for Python FastAPI projects
+globs:
+  - "**/*.py"
+alwaysApply: true
+---
+
+# Code Review Guidelines
+
+## Review Philosophy
+
+Code review is a collaborative process focused on:
+1. **Code Quality** - Ensuring code meets standards
+2. **Knowledge Sharing** - Learning from each other
+3. **Bug Prevention** - Catching issues before production
+4. **Consistency** - Maintaining codebase consistency
+
+## Review Checklist
+
+### Functionality
+
+- [ ] Does the code work as intended?
+- [ ] Are edge cases handled?
+- [ ] Are error cases handled properly?
+- [ ] Is the code complete (no TODOs or placeholders)?
+- [ ] Are there any obvious bugs or logic errors?
+
+### Code Quality
+
+- [ ] Does the code follow style guidelines (Black, PEP 8)?
+- [ ] Are type hints present and correct?
+- [ ] Are docstrings present for public functions?
+- [ ] Is the code readable and maintainable?
+- [ ] Are variable names descriptive (no abbreviations)?
+- [ ] Is there any code duplication that should be refactored?
+
+### Architecture
+
+- [ ] Does the code follow architectural patterns (Service Layer, Repository Pattern)?
+- [ ] Is business logic in services, not in routes?
+- [ ] Are dependencies properly injected?
+- [ ] Is the code properly organized (correct file/directory structure)?
+
+### Testing
+
+- [ ] Are there adequate tests?
+- [ ] Do tests cover edge cases?
+- [ ] Do tests follow testing guidelines?
+- [ ] Is test coverage adequate (100% for services/repositories)?
+- [ ] Are tests readable and maintainable?
+
+### Performance
+
+- [ ] Are I/O operations async?
+- [ ] Are database queries optimized (no N+1 problems)?
+- [ ] Is caching used appropriately?
+- [ ] Are heavy operations offloaded to background tasks?
+- [ ] Are there any obvious performance bottlenecks?
+
+### Security
+
+- [ ] Is input validation present (Pydantic schemas)?
+- [ ] Are authentication/authorization checks in place?
+- [ ] Are secrets properly handled (not hardcoded)?
+- [ ] Is sensitive data not logged or exposed?
+- [ ] Are SQL injection risks mitigated (using ORM)?
+
+### Error Handling
+
+- [ ] Are errors handled appropriately?
+- [ ] Are custom exceptions used where appropriate?
+- [ ] Are error messages user-friendly?
+- [ ] Are errors logged with proper context?
+
+### Documentation
+
+- [ ] Are docstrings present for public functions?
+- [ ] Is the code self-documenting (clear variable names)?
+- [ ] Are complex algorithms explained?
+- [ ] Is API documentation updated (if applicable)?
+
+## Review Process
+
+### For Authors
+
+1. **Self-Review First**
+   - Review your own code before requesting review
+   - Run all linters and tests
+   - Check that all guidelines are followed
+
+2. **Prepare PR**
+   - Write clear PR description
+   - Reference related issues
+   - Add screenshots if UI changes
+   - Keep PRs focused and small
+
+3. **Respond to Feedback**
+   - Be open to feedback
+   - Ask questions if unclear
+   - Make requested changes promptly
+   - Explain your reasoning if you disagree
+
+### For Reviewers
+
+1. **Be Constructive**
+   - Provide specific, actionable feedback
+   - Explain the "why" behind suggestions
+   - Acknowledge good code
+   - Be respectful and professional
+
+2. **Focus on What Matters**
+   - Prioritize functionality and correctness
+   - Don't nitpick style (tools handle that)
+   - Focus on architecture and design
+   - Consider maintainability
+
+3. **Review Promptly**
+   - Review within 24 hours if possible
+   - Don't let PRs sit for days
+   - Communicate if you need more time
+
+## Common Review Comments
+
+### Positive Feedback
+
+```python
+# ✅ GOOD - Clear and concise
+# "Great use of async/await here!"
+# "Excellent error handling with custom exceptions"
+# "Good separation of concerns between service and repository"
+```
+
+### Constructive Feedback
+
+```python
+# ❌ ISSUE - Missing type hints
+def process_data(data):
+    pass
+
+# Comment: "Please add type hints for better type safety"
+
+# ✅ SUGGESTION
+def process_data(data: Dict[str, Any]) -> Dict[str, Any]:
+    pass
+```
+
+### Code Examples
+
+```python
+# ❌ ISSUE - Business logic in route
+@router.post("/users")
+async def create_user(user_data: UserCreate):
+    # Business logic here
+    if await db.execute(select(User).where(User.email == user_data.email)):
+        raise HTTPException(...)
+    # ...
+
+# Comment: "Please move business logic to UserService. Routes should be thin wrappers."
+
+# ✅ SUGGESTION
+@router.post("/users")
+async def create_user(user_data: UserCreate, service: UserService = Depends(get_user_service)):
+    user = await service.create_user(user_data)
+    return UserResponse.from_orm(user)
+```
+
+## Review Scenarios
+
+### Scenario 1: New Feature
+
+**Check:**
+- [ ] Feature is complete and working
+- [ ] Tests are comprehensive
+- [ ] Documentation is updated
+- [ ] No breaking changes (or properly documented)
+- [ ] Performance considerations addressed
+
+### Scenario 2: Bug Fix
+
+**Check:**
+- [ ] Root cause is addressed, not just symptoms
+- [ ] Regression test is added
+- [ ] Similar bugs don't exist elsewhere
+- [ ] Fix doesn't introduce new issues
+
+### Scenario 3: Refactoring
+
+**Check:**
+- [ ] Functionality is unchanged
+- [ ] Tests still pass
+- [ ] Code is more maintainable
+- [ ] No performance regressions
+
+### Scenario 4: Performance Optimization
+
+**Check:**
+- [ ] Performance is actually improved (measurements provided)
+- [ ] Code readability is maintained
+- [ ] Tests are updated if needed
+- [ ] Optimization is appropriate (not premature)
+
+## Approval Criteria
+
+A PR should be approved when:
+
+1. ✅ All checklist items are satisfied
+2. ✅ All tests pass
+3. ✅ All linters pass (no errors)
+4. ✅ Code follows all guidelines
+5. ✅ At least one reviewer has approved
+6. ✅ All conversations are resolved
+
+## Handling Disagreements
+
+### When Reviewer and Author Disagree
+
+1. **Discuss in PR Comments**
+   - Explain your reasoning
+   - Reference guidelines or best practices
+   - Be open to different perspectives
+
+2. **Escalate if Needed**
+   - Involve team lead or senior developer
+   - Make decision based on team consensus
+   - Document decision if it's a pattern
+
+3. **Document Exceptions**
+   - If deviating from guidelines, document why
+   - Update guidelines if pattern emerges
+   - Don't create one-off exceptions
+
+## Review Tools
+
+### Automated Checks
+
+- **Linters:** ruff, mypy, black, isort
+- **Tests:** pytest with coverage
+- **Security:** bandit, safety
+- **Type Checking:** mypy
+
+### Manual Review
+
+- **Code Structure:** Architecture patterns
+- **Logic:** Business logic correctness
+- **Design:** API design, data models
+- **Documentation:** Docstrings, comments
+
+## Best Practices
+
+### For Authors
+
+1. **Keep PRs Small**
+   - One logical change per PR
+   - Easier to review and understand
+   - Faster to merge
+
+2. **Write Clear Commit Messages**
+   - Follow conventional commits
+   - Explain what and why
+   - Reference issues
+
+3. **Respond Promptly**
+   - Address feedback quickly
+   - Ask questions if unclear
+   - Don't take feedback personally
+
+### For Reviewers
+
+1. **Be Specific**
+   - Point to exact lines
+   - Provide code examples
+   - Explain the reasoning
+
+2. **Be Respectful**
+   - Critique code, not person
+   - Use "we" instead of "you"
+   - Acknowledge good work
+
+3. **Be Thorough**
+   - Check all aspects
+   - Don't rush reviews
+   - Test if possible
+
+## Remember
+
+- **Code review is a learning opportunity** - For both author and reviewer
+- **Be constructive** - Help improve the code, don't just criticize
+- **Focus on what matters** - Functionality, architecture, security
+- **Be timely** - Don't let PRs sit for days
+- **Be respectful** - We're all working toward the same goal

@@ -1,0 +1,342 @@
+---
+description: RESTful API design principles and best practices for FastAPI
+globs:
+  - "**/app/api/**"
+alwaysApply: true
+---
+
+# API Design Guidelines
+
+## RESTful Principles
+
+### Resource Naming
+
+- **Use nouns, not verbs** - Resources are things, not actions
+- **Use plural nouns** - Collections are plural
+- **Use kebab-case** - For multi-word resources
+- **Be consistent** - Follow the same pattern throughout
+
+```python
+# ✅ GOOD
+GET    /api/v1/users
+GET    /api/v1/users/123
+POST   /api/v1/users
+PUT    /api/v1/users/123
+DELETE /api/v1/users/123
+
+GET    /api/v1/user-profiles
+GET    /api/v1/user-profiles/123
+
+# ❌ BAD
+GET    /api/v1/getUsers
+GET    /api/v1/user  # Should be plural
+POST   /api/v1/createUser  # Verb in URL
+GET    /api/v1/userProfiles  # camelCase instead of kebab-case
+```
+
+### HTTP Methods
+
+Use HTTP methods correctly:
+
+- **GET** - Retrieve resources (idempotent, safe)
+- **POST** - Create resources or perform actions
+- **PUT** - Replace entire resource (idempotent)
+- **PATCH** - Partial update (idempotent)
+- **DELETE** - Delete resource (idempotent)
+
+```python
+# ✅ GOOD
+@router.get("/users/{user_id}")
+async def get_user(user_id: int) -> UserResponse:
+    """Get user by ID."""
+    pass
+
+@router.post("/users")
+async def create_user(user_data: UserCreate) -> UserResponse:
+    """Create new user."""
+    pass
+
+@router.put("/users/{user_id}")
+async def update_user(user_id: int, user_data: UserUpdate) -> UserResponse:
+    """Replace entire user."""
+    pass
+
+@router.patch("/users/{user_id}")
+async def partial_update_user(user_id: int, user_data: UserPartialUpdate) -> UserResponse:
+    """Partially update user."""
+    pass
+
+@router.delete("/users/{user_id}")
+async def delete_user(user_id: int) -> None:
+    """Delete user."""
+    pass
+```
+
+### Status Codes
+
+Use appropriate HTTP status codes:
+
+- **200 OK** - Successful GET, PUT, PATCH
+- **201 Created** - Successful POST (resource created)
+- **204 No Content** - Successful DELETE
+- **400 Bad Request** - Client error (validation)
+- **401 Unauthorized** - Authentication required
+- **403 Forbidden** - Authorization failed
+- **404 Not Found** - Resource doesn't exist
+- **409 Conflict** - Resource conflict (e.g., duplicate)
+- **422 Unprocessable Entity** - Validation error (Pydantic)
+- **500 Internal Server Error** - Server error
+
+```python
+# ✅ GOOD
+@router.post("/users", status_code=201)
+async def create_user(user_data: UserCreate) -> UserResponse:
+    """Create user - returns 201."""
+    pass
+
+@router.delete("/users/{user_id}", status_code=204)
+async def delete_user(user_id: int) -> None:
+    """Delete user - returns 204."""
+    pass
+
+@router.get("/users/{user_id}", status_code=200)
+async def get_user(user_id: int) -> UserResponse:
+    """Get user - returns 200."""
+    pass
+```
+
+## Request/Response Patterns
+
+### Request Validation
+
+Always validate requests with Pydantic:
+
+```python
+# ✅ GOOD - Pydantic validation
+from pydantic import BaseModel, EmailStr, Field
+
+class UserCreate(BaseModel):
+    """User creation schema."""
+    email: EmailStr
+    full_name: str = Field(..., min_length=1, max_length=255)
+    password: str = Field(..., min_length=8, max_length=100)
+
+@router.post("/users")
+async def create_user(user_data: UserCreate) -> UserResponse:
+    """Create user - automatically validated."""
+    # user_data is already validated
+    pass
+```
+
+### Response Models
+
+Always define response models:
+
+```python
+# ✅ GOOD - Explicit response model
+@router.get("/users/{user_id}", response_model=UserResponse)
+async def get_user(user_id: int) -> UserResponse:
+    """Get user with typed response."""
+    pass
+
+# ✅ GOOD - List response
+@router.get("/users", response_model=List[UserResponse])
+async def list_users() -> List[UserResponse]:
+    """List users."""
+    pass
+```
+
+### Error Responses
+
+Use consistent error format:
+
+```python
+# app/core/exceptions.py
+class ApplicationError(Exception):
+    """Base exception with consistent format."""
+    def __init__(self, message: str, status_code: int = 500):
+        self.message = message
+        self.status_code = status_code
+
+# Error response format
+{
+    "error": {
+        "message": "User not found",
+        "code": "NotFoundError",
+        "detail": {}
+    }
+}
+```
+
+## Pagination
+
+### Cursor-Based Pagination (Preferred)
+
+```python
+# app/schemas/pagination.py
+from pydantic import BaseModel
+from typing import Optional, Generic, TypeVar, List
+
+T = TypeVar("T")
+
+class PaginatedResponse(BaseModel, Generic[T]):
+    """Cursor-based paginated response."""
+    items: List[T]
+    next_cursor: Optional[str] = None
+    has_more: bool
+
+# Usage
+@router.get("/users", response_model=PaginatedResponse[UserResponse])
+async def list_users(
+    cursor: Optional[str] = None,
+    limit: int = Query(20, ge=1, le=100),
+) -> PaginatedResponse[UserResponse]:
+    """List users with cursor pagination."""
+    users, next_cursor, has_more = await user_service.list_paginated(
+        cursor=cursor,
+        limit=limit,
+    )
+    return PaginatedResponse(
+        items=[UserResponse.from_orm(u) for u in users],
+        next_cursor=next_cursor,
+        has_more=has_more,
+    )
+```
+
+### Offset-Based Pagination (Alternative)
+
+```python
+class PaginatedResponse(BaseModel, Generic[T]):
+    """Offset-based paginated response."""
+    items: List[T]
+    total: int
+    page: int
+    page_size: int
+    pages: int
+
+@router.get("/users", response_model=PaginatedResponse[UserResponse])
+async def list_users(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+) -> PaginatedResponse[UserResponse]:
+    """List users with offset pagination."""
+    offset = (page - 1) * page_size
+    users, total = await asyncio.gather(
+        user_service.list_paginated(offset, page_size),
+        user_service.count(),
+    )
+    return PaginatedResponse(
+        items=[UserResponse.from_orm(u) for u in users],
+        total=total,
+        page=page,
+        page_size=page_size,
+        pages=(total + page_size - 1) // page_size,
+    )
+```
+
+## Filtering and Sorting
+
+### Query Parameters
+
+```python
+@router.get("/users", response_model=List[UserResponse])
+async def list_users(
+    status: Optional[str] = Query(None, description="Filter by status"),
+    sort_by: str = Query("created_at", description="Sort field"),
+    sort_order: str = Query("desc", regex="^(asc|desc)$"),
+    limit: int = Query(20, ge=1, le=100),
+) -> List[UserResponse]:
+    """List users with filtering and sorting."""
+    users = await user_service.list_filtered(
+        status=status,
+        sort_by=sort_by,
+        sort_order=sort_order,
+        limit=limit,
+    )
+    return [UserResponse.from_orm(u) for u in users]
+```
+
+## API Versioning
+
+### URL Path Versioning (Preferred)
+
+```python
+# app/api/v1/router.py
+from fastapi import APIRouter
+
+api_router = APIRouter(prefix="/api/v1")
+
+# app/main.py
+from app.api.v1.router import api_router
+
+app.include_router(api_router)
+```
+
+### Header Versioning (Alternative)
+
+```python
+@router.get("/users", dependencies=[Depends(require_api_version("v1"))])
+async def list_users() -> List[UserResponse]:
+    """List users - requires v1 API version header."""
+    pass
+```
+
+## OpenAPI Documentation
+
+FastAPI automatically generates OpenAPI docs:
+
+```python
+# app/main.py
+app = FastAPI(
+    title="My API",
+    description="API for managing users and resources",
+    version="1.0.0",
+    docs_url="/docs",  # Swagger UI
+    redoc_url="/redoc",  # ReDoc
+    openapi_url="/openapi.json",
+)
+```
+
+### Enhance Documentation
+
+```python
+@router.post(
+    "/users",
+    response_model=UserResponse,
+    status_code=201,
+    summary="Create a new user",
+    description="Create a new user account with email and password",
+    response_description="The created user",
+    tags=["users"],
+)
+async def create_user(user_data: UserCreate) -> UserResponse:
+    """
+    Create a new user account.
+    
+    This endpoint allows creating a new user account. The user will
+    receive a welcome email with login credentials.
+    """
+    pass
+```
+
+## Best Practices
+
+1. **Consistent Naming** - Use consistent resource naming
+2. **Proper HTTP Methods** - Use correct methods for operations
+3. **Status Codes** - Return appropriate status codes
+4. **Validation** - Always validate with Pydantic
+5. **Error Handling** - Consistent error response format
+6. **Pagination** - Implement pagination for list endpoints
+7. **Versioning** - Version your APIs
+8. **Documentation** - Use OpenAPI/Swagger
+9. **Idempotency** - Make operations idempotent where possible
+10. **Security** - Implement authentication and authorization
+
+## Remember
+
+- **RESTful Principles** - Follow REST conventions
+- **Consistency** - Be consistent across all endpoints
+- **Documentation** - Use OpenAPI for automatic docs
+- **Validation** - Always validate requests
+- **Error Handling** - Consistent error responses
+- **Versioning** - Version your APIs from the start

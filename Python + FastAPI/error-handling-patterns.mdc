@@ -1,0 +1,561 @@
+---
+description: Error handling patterns and best practices for Python FastAPI applications
+globs:
+  - "**/*.py"
+alwaysApply: true
+---
+
+# Error Handling Patterns
+
+## Philosophy
+
+Errors are inevitable in any application. Our error handling strategy focuses on:
+1. **Graceful Degradation** - The application should continue functioning even when errors occur
+2. **User-Friendly Feedback** - Users should understand what went wrong without technical jargon
+3. **Developer Debugging** - Errors should contain enough context for debugging
+4. **Security** - Never expose sensitive information in error messages
+
+## Error Types
+
+### 1. Custom Application Exceptions
+
+Custom exception classes for domain-specific errors:
+
+```python
+# app/core/exceptions.py
+from typing import Optional
+
+
+class ApplicationError(Exception):
+    """Base exception for application errors."""
+    
+    def __init__(
+        self,
+        message: str,
+        status_code: int = 500,
+        detail: Optional[dict] = None,
+    ):
+        self.message = message
+        self.status_code = status_code
+        self.detail = detail or {}
+        super().__init__(self.message)
+
+
+class ValidationError(ApplicationError):
+    """Validation error."""
+    
+    def __init__(self, message: str, detail: Optional[dict] = None):
+        super().__init__(message, status_code=400, detail=detail)
+
+
+class AuthenticationError(ApplicationError):
+    """Authentication error."""
+    
+    def __init__(self, message: str = "Authentication failed"):
+        super().__init__(message, status_code=401)
+
+
+class AuthorizationError(ApplicationError):
+    """Authorization error."""
+    
+    def __init__(self, message: str = "Access denied"):
+        super().__init__(message, status_code=403)
+
+
+class NotFoundError(ApplicationError):
+    """Resource not found error."""
+    
+    def __init__(self, resource: str):
+        super().__init__(f"{resource} not found", status_code=404)
+
+
+class ConflictError(ApplicationError):
+    """Conflict error (e.g., duplicate resource)."""
+    
+    def __init__(self, message: str):
+        super().__init__(message, status_code=409)
+
+
+class RateLimitError(ApplicationError):
+    """Rate limit exceeded error."""
+    
+    def __init__(self, message: str = "Too many requests"):
+        super().__init__(message, status_code=429)
+
+
+class ExternalServiceError(ApplicationError):
+    """External service error."""
+    
+    def __init__(self, service: str, message: str, original_error: Optional[Exception] = None):
+        super().__init__(
+            f"{service} error: {message}",
+            status_code=503,
+            detail={"service": service, "original_error": str(original_error) if original_error else None}
+        )
+        self.service = service
+        self.original_error = original_error
+```
+
+### 2. Exception Handlers
+
+Global exception handlers for consistent error responses:
+
+```python
+# app/core/exception_handlers.py
+from fastapi import Request, status
+from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
+from sqlalchemy.exc import SQLAlchemyError
+
+from app.core.exceptions import ApplicationError
+from app.core.logging import get_logger
+
+logger = get_logger(__name__)
+
+
+async def application_error_handler(
+    request: Request,
+    exc: ApplicationError,
+) -> JSONResponse:
+    """Handle application errors."""
+    logger.error(
+        "Application error",
+        extra={
+            "error": exc.message,
+            "status_code": exc.status_code,
+            "detail": exc.detail,
+            "path": request.url.path,
+        }
+    )
+    
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "error": {
+                "message": exc.message,
+                "code": exc.__class__.__name__,
+                "detail": exc.detail,
+            }
+        }
+    )
+
+
+async def validation_error_handler(
+    request: Request,
+    exc: RequestValidationError,
+) -> JSONResponse:
+    """Handle validation errors."""
+    errors = exc.errors()
+    logger.warning(
+        "Validation error",
+        extra={
+            "errors": errors,
+            "path": request.url.path,
+        }
+    )
+    
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content={
+            "error": {
+                "message": "Validation failed",
+                "code": "ValidationError",
+                "detail": errors,
+            }
+        }
+    )
+
+
+async def database_error_handler(
+    request: Request,
+    exc: SQLAlchemyError,
+) -> JSONResponse:
+    """Handle database errors."""
+    logger.error(
+        "Database error",
+        extra={
+            "error": str(exc),
+            "path": request.url.path,
+        },
+        exc_info=True,
+    )
+    
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={
+            "error": {
+                "message": "Database error occurred",
+                "code": "DatabaseError",
+            }
+        }
+    )
+
+
+async def general_exception_handler(
+    request: Request,
+    exc: Exception,
+) -> JSONResponse:
+    """Handle unexpected exceptions."""
+    logger.error(
+        "Unexpected error",
+        extra={
+            "error": str(exc),
+            "path": request.url.path,
+        },
+        exc_info=True,
+    )
+    
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={
+            "error": {
+                "message": "An unexpected error occurred",
+                "code": "InternalServerError",
+            }
+        }
+    )
+
+# app/main.py
+from fastapi import FastAPI
+from fastapi.exceptions import RequestValidationError
+from sqlalchemy.exc import SQLAlchemyError
+
+from app.core.exceptions import ApplicationError
+from app.core.exception_handlers import (
+    application_error_handler,
+    validation_error_handler,
+    database_error_handler,
+    general_exception_handler,
+)
+
+app = FastAPI()
+
+app.add_exception_handler(ApplicationError, application_error_handler)
+app.add_exception_handler(RequestValidationError, validation_error_handler)
+app.add_exception_handler(SQLAlchemyError, database_error_handler)
+app.add_exception_handler(Exception, general_exception_handler)
+```
+
+## Error Handling Patterns
+
+### 1. Service Layer Error Handling
+
+Services should handle errors and provide meaningful context:
+
+```python
+# app/services/user_service.py
+from typing import Optional
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.domain.user import User
+from app.repositories.user_repository import UserRepository
+from app.schemas.user import UserCreate
+from app.core.exceptions import NotFoundError, ConflictError, ExternalServiceError
+from app.core.logging import get_logger
+
+logger = get_logger(__name__)
+
+
+class UserService:
+    """Service for user-related business logic."""
+    
+    def __init__(self, db: AsyncSession):
+        self.db = db
+        self.repository = UserRepository(db)
+    
+    async def get_user_by_id(self, user_id: int) -> User:
+        """Get user by ID."""
+        try:
+            if not user_id or user_id <= 0:
+                raise ValidationError("Invalid user ID format")
+            
+            user = await self.repository.get_by_id(user_id)
+            
+            if not user:
+                raise NotFoundError("User")
+            
+            return user
+        except NotFoundError:
+            raise
+        except Exception as e:
+            logger.error(
+                "Failed to fetch user profile",
+                extra={
+                    "user_id": user_id,
+                    "error": str(e),
+                },
+                exc_info=True,
+            )
+            raise ApplicationError("Failed to fetch user profile") from e
+    
+    async def create_user(self, user_data: UserCreate) -> User:
+        """Create a new user."""
+        try:
+            # Check if user exists
+            existing_user = await self.repository.get_by_email(user_data.email)
+            if existing_user:
+                raise ConflictError("User with this email already exists")
+            
+            # Create user
+            user = await self.repository.create(user_data)
+            
+            return user
+        except ConflictError:
+            raise
+        except Exception as e:
+            logger.error(
+                "Failed to create user",
+                extra={
+                    "email": user_data.email,
+                    "error": str(e),
+                },
+                exc_info=True,
+            )
+            raise ApplicationError("Failed to create user") from e
+```
+
+### 2. Repository Error Handling
+
+Repositories should handle database-specific errors:
+
+```python
+# app/repositories/user_repository.py
+from typing import Optional
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import IntegrityError
+
+from app.models.database.user import User as UserModel
+from app.core.exceptions import ConflictError, ApplicationError
+from app.core.logging import get_logger
+
+logger = get_logger(__name__)
+
+
+class UserRepository:
+    """Repository for user data access."""
+    
+    def __init__(self, db: AsyncSession):
+        self.db = db
+    
+    async def create(self, user_data: dict) -> UserModel:
+        """Create a new user."""
+        try:
+            user_model = UserModel(**user_data)
+            self.db.add(user_model)
+            await self.db.flush()
+            await self.db.refresh(user_model)
+            return user_model
+        except IntegrityError as e:
+            await self.db.rollback()
+            logger.warning(
+                "Integrity error creating user",
+                extra={"error": str(e)},
+            )
+            raise ConflictError("User with this email already exists") from e
+        except Exception as e:
+            await self.db.rollback()
+            logger.error(
+                "Database error creating user",
+                extra={"error": str(e)},
+                exc_info=True,
+            )
+            raise ApplicationError("Database error") from e
+```
+
+### 3. API Route Error Handling
+
+Routes should catch and handle service errors:
+
+```python
+# app/api/v1/endpoints/users.py
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.api.dependencies import get_db
+from app.services.user_service import UserService
+from app.schemas.user import UserResponse, UserCreate
+from app.core.exceptions import NotFoundError, ConflictError
+
+router = APIRouter(prefix="/users", tags=["users"])
+
+
+@router.get("/{user_id}", response_model=UserResponse)
+async def get_user(
+    user_id: int,
+    db: AsyncSession = Depends(get_db),
+) -> UserResponse:
+    """Get user by ID."""
+    user_service = UserService(db)
+    try:
+        user = await user_service.get_user_by_id(user_id)
+        return UserResponse.from_orm(user)
+    except NotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=e.message
+        )
+```
+
+## Error Recovery Strategies
+
+### 1. Retry Logic
+
+For transient failures:
+
+```python
+# app/utils/retry.py
+from typing import TypeVar, Callable, Optional
+import asyncio
+from functools import wraps
+
+from app.core.exceptions import ExternalServiceError
+
+T = TypeVar("T")
+
+
+def retry_on_failure(
+    max_attempts: int = 3,
+    delay: float = 1.0,
+    backoff: float = 2.0,
+    exceptions: tuple = (Exception,),
+):
+    """Retry decorator for async functions."""
+    def decorator(func: Callable[..., T]) -> Callable[..., T]:
+        @wraps(func)
+        async def wrapper(*args, **kwargs) -> T:
+            last_exception = None
+            
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    return await func(*args, **kwargs)
+                except exceptions as e:
+                    last_exception = e
+                    if attempt == max_attempts:
+                        break
+                    
+                    wait_time = delay * (backoff ** (attempt - 1))
+                    await asyncio.sleep(wait_time)
+            
+            raise last_exception
+        
+        return wrapper
+    return decorator
+
+# Usage
+@retry_on_failure(max_attempts=3, exceptions=(ExternalServiceError,))
+async def fetch_external_data():
+    # External API call
+    pass
+```
+
+### 2. Circuit Breaker
+
+Prevent cascading failures:
+
+```python
+# app/utils/circuit_breaker.py
+from enum import Enum
+from typing import Callable, TypeVar
+from datetime import datetime, timedelta
+import asyncio
+
+T = TypeVar("T")
+
+
+class CircuitState(Enum):
+    CLOSED = "closed"
+    OPEN = "open"
+    HALF_OPEN = "half_open"
+
+
+class CircuitBreaker:
+    """Circuit breaker for external service calls."""
+    
+    def __init__(
+        self,
+        failure_threshold: int = 5,
+        timeout: int = 60,
+    ):
+        self.failure_threshold = failure_threshold
+        self.timeout = timeout
+        self.failures = 0
+        self.last_failure_time: Optional[datetime] = None
+        self.state = CircuitState.CLOSED
+    
+    async def call(self, func: Callable[..., T], *args, **kwargs) -> T:
+        """Execute function with circuit breaker."""
+        if self.state == CircuitState.OPEN:
+            if self._should_attempt_reset():
+                self.state = CircuitState.HALF_OPEN
+            else:
+                raise Exception("Circuit breaker is OPEN")
+        
+        try:
+            result = await func(*args, **kwargs)
+            self._on_success()
+            return result
+        except Exception as e:
+            self._on_failure()
+            raise
+    
+    def _should_attempt_reset(self) -> bool:
+        """Check if enough time has passed to attempt reset."""
+        if not self.last_failure_time:
+            return True
+        return datetime.utcnow() - self.last_failure_time > timedelta(seconds=self.timeout)
+    
+    def _on_success(self) -> None:
+        """Handle successful call."""
+        self.failures = 0
+        self.state = CircuitState.CLOSED
+    
+    def _on_failure(self) -> None:
+        """Handle failed call."""
+        self.failures += 1
+        self.last_failure_time = datetime.utcnow()
+        
+        if self.failures >= self.failure_threshold:
+            self.state = CircuitState.OPEN
+```
+
+## Best Practices
+
+1. **Be Specific** - Create specific error types for different scenarios
+2. **Add Context** - Include relevant IDs, operations, and state in error logs
+3. **User-Friendly Messages** - Separate technical errors from user-facing messages
+4. **Don't Swallow Errors** - Always handle errors explicitly
+5. **Test Error Paths** - Include error scenarios in your tests
+6. **Document Errors** - Document possible errors in function docstrings
+7. **Fail Fast** - Validate inputs early and raise immediately
+8. **Graceful Degradation** - Provide fallbacks where possible
+9. **Security First** - Never expose sensitive data in error messages
+10. **Monitor Proactively** - Set up alerts for error spikes
+
+## Common Patterns to Avoid
+
+```python
+# ❌ BAD - Silent failures
+try:
+    await risky_operation()
+except Exception:
+    pass  # Silently ignoring errors
+
+# ❌ BAD - Generic error messages
+raise Exception("Error occurred")
+
+# ❌ BAD - Exposing internals
+raise HTTPException(status_code=500, detail=str(internal_error))
+
+# ❌ BAD - Inconsistent error handling
+if not user:
+    return {"msg": "Not found"}
+if not valid:
+    return {"error": "Bad request"}
+
+# ✅ GOOD - Consistent, informative errors
+if not user:
+    raise NotFoundError("User")
+if not valid:
+    raise ValidationError("Invalid input format")
+```

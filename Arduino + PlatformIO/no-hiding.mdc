@@ -1,0 +1,388 @@
+---
+description: Critical rule - never hide compiler warnings or errors in embedded systems
+globs:
+  - "**/*.cpp"
+  - "**/*.c"
+  - "**/*.h"
+  - "**/*.hpp"
+  - "**/platformio.ini"
+alwaysApply: true
+---
+
+# No Hiding Rule
+
+## Critical Principle
+
+**NEVER hide compiler warnings or errors. All warnings must be treated as errors and fully resolved.**
+
+In embedded systems, compiler warnings often indicate serious issues that can lead to:
+- Memory corruption
+- Undefined behavior
+- Race conditions
+- Hardware failures
+- System crashes
+
+Hiding warnings is dangerous and unacceptable. Every warning must be understood and fixed.
+
+## Compiler Warnings as Errors
+
+### PlatformIO Configuration
+
+```ini
+; platformio.ini
+[env]
+build_flags = 
+    -Wall                    ; Enable all warnings
+    -Wextra                  ; Enable extra warnings
+    -Werror                  ; Treat warnings as errors
+    -Wpedantic               ; Strict ISO C++ compliance
+    -Wconversion             ; Warn about implicit conversions
+    -Wsign-conversion        ; Warn about sign conversions
+    -Wunused                 ; Warn about unused variables/functions
+    -Wshadow                 ; Warn about shadowed variables
+    -Wcast-qual              ; Warn about casting away qualifiers
+    -Wformat=2               ; Strict format string checking
+    -Wstrict-overflow=5     ; Warn about overflow assumptions
+```
+
+### Common Warning Categories
+
+```cpp
+// ❌ BAD - Implicit conversion warning
+uint8_t value = 500;  // Warning: conversion from 'int' to 'uint8_t'
+
+// ✅ GOOD - Explicit conversion
+uint8_t value = static_cast<uint8_t>(500);
+
+// ❌ BAD - Unused variable warning
+void processData(uint8_t* data, size_t length) {
+  uint8_t temp = data[0];  // Warning: unused variable
+  // ...
+}
+
+// ✅ GOOD - Remove unused variable or use it
+void processData(uint8_t* data, size_t length) {
+  if (data[0] == 0) {  // Use the value
+    return;
+  }
+  // ...
+}
+
+// ❌ BAD - Sign comparison warning
+int8_t value = -10;
+if (value < 0) {  // Warning: comparison of signed and unsigned
+  // ...
+}
+
+// ✅ GOOD - Explicit comparison
+int8_t value = -10;
+if (value < static_cast<int8_t>(0)) {
+  // ...
+}
+
+// ❌ BAD - Uninitialized variable warning
+uint8_t count;
+for (uint8_t i = 0; i < 10; i++) {
+  count++;  // Warning: 'count' may be used uninitialized
+}
+
+// ✅ GOOD - Initialize variable
+uint8_t count = 0;
+for (uint8_t i = 0; i < 10; i++) {
+  count++;
+}
+```
+
+## Never Suppress Warnings
+
+### ❌ BAD - Warning Suppression
+
+```cpp
+// NEVER do this
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-variable"
+uint8_t unused = 0;
+#pragma GCC diagnostic pop
+
+// NEVER do this
+#pragma GCC diagnostic ignored "-Wconversion"
+uint8_t value = 500;
+
+// NEVER do this
+(void)unusedVariable;  // Suppress unused warning
+
+// NEVER do this in platformio.ini
+build_unflags = -Werror  // Remove -Werror
+```
+
+### ✅ GOOD - Fix the Underlying Issue
+
+```cpp
+// Fix unused variable by removing it or using it
+void processData(uint8_t* data, size_t length) {
+  // Remove unused variable
+  // Or use it: validateData(data, length);
+}
+
+// Fix conversion warning with explicit cast
+uint8_t value = static_cast<uint8_t>(500);
+
+// Fix uninitialized variable
+uint8_t count = 0;  // Initialize properly
+```
+
+## Type Safety Warnings
+
+```cpp
+// ❌ BAD - Implicit narrowing conversion
+uint8_t buffer[256];
+int index = 300;
+buffer[index] = 0;  // Warning: array index out of bounds
+
+// ✅ GOOD - Validate bounds
+uint8_t buffer[256];
+int index = 300;
+if (index >= 0 && index < 256) {
+  buffer[index] = 0;
+}
+
+// ❌ BAD - Pointer type mismatch
+uint8_t* data = (uint8_t*)malloc(100);  // Warning: C-style cast
+
+// ✅ GOOD - Use C++ cast
+uint8_t* data = static_cast<uint8_t*>(malloc(100));
+// Or better: avoid malloc entirely
+uint8_t data[100];  // Static allocation
+```
+
+## Format String Warnings
+
+```cpp
+// ❌ BAD - Format string mismatch
+uint8_t value = 100;
+Serial.printf("Value: %d\n", value);  // Warning: format expects int
+
+// ✅ GOOD - Correct format specifier
+uint8_t value = 100;
+Serial.printf("Value: %u\n", value);  // %u for unsigned
+
+// ❌ BAD - Missing format arguments
+Serial.printf("Value: %d\n");  // Warning: format expects argument
+
+// ✅ GOOD - Provide all arguments
+Serial.printf("Value: %d\n", value);
+```
+
+## Unused Parameter Warnings
+
+```cpp
+// ❌ BAD - Suppress unused parameter
+void callback(uint8_t pin) {
+  (void)pin;  // Suppress warning
+}
+
+// ✅ GOOD - Remove parameter name if unused
+void callback(uint8_t /* pin */) {
+  // Parameter intentionally unused
+}
+
+// ✅ GOOD - Use parameter
+void callback(uint8_t pin) {
+  if (pin < NUM_DIGITAL_PINS) {
+    // Use the parameter
+  }
+}
+
+// ✅ GOOD - Mark as unused with attribute
+void callback([[maybe_unused]] uint8_t pin) {
+  // C++17 attribute for intentionally unused
+}
+```
+
+## Shadowing Warnings
+
+```cpp
+// ❌ BAD - Variable shadowing
+class Sensor {
+private:
+  uint8_t pin_;
+  
+public:
+  void setPin(uint8_t pin) {
+    uint8_t pin = pin_;  // Warning: 'pin' shadows member 'pin_'
+  }
+};
+
+// ✅ GOOD - Use different name
+class Sensor {
+private:
+  uint8_t pin_;
+  
+public:
+  void setPin(uint8_t pin) {
+    pin_ = pin;  // No shadowing
+  }
+};
+```
+
+## Strict Aliasing Warnings
+
+```cpp
+// ❌ BAD - Violates strict aliasing
+float value = 1.0f;
+uint32_t* ptr = (uint32_t*)&value;  // Warning: strict aliasing
+*ptr = 0x3F800000;
+
+// ✅ GOOD - Use union for type punning
+union FloatInt {
+  float f;
+  uint32_t i;
+};
+
+FloatInt fi;
+fi.f = 1.0f;
+fi.i = 0x3F800000;
+```
+
+## Overflow Warnings
+
+```cpp
+// ❌ BAD - Potential overflow
+uint8_t a = 200;
+uint8_t b = 100;
+uint8_t sum = a + b;  // Warning: overflow in addition
+
+// ✅ GOOD - Check for overflow
+uint8_t a = 200;
+uint8_t b = 100;
+uint16_t sum = static_cast<uint16_t>(a) + b;
+if (sum > 255) {
+  // Handle overflow
+  sum = 255;
+}
+uint8_t result = static_cast<uint8_t>(sum);
+```
+
+## Return Value Warnings
+
+```cpp
+// ❌ BAD - Missing return statement
+int getValue() {
+  if (condition) {
+    return 10;
+  }
+  // Warning: control reaches end of non-void function
+}
+
+// ✅ GOOD - Always return a value
+int getValue() {
+  if (condition) {
+    return 10;
+  }
+  return 0;  // Default return
+}
+
+// ❌ BAD - Unused return value
+readSensor();  // Warning: ignoring return value
+
+// ✅ GOOD - Check return value
+if (readSensor() != ErrorCode::OK) {
+  handleError();
+}
+```
+
+## PlatformIO Build Configuration
+
+```ini
+; platformio.ini - Strict warning configuration
+[env]
+build_flags = 
+    ; Enable all warnings
+    -Wall
+    -Wextra
+    -Wpedantic
+    
+    ; Treat warnings as errors
+    -Werror
+    
+    ; Specific warning categories
+    -Wconversion
+    -Wsign-conversion
+    -Wunused
+    -Wunused-variable
+    -Wunused-function
+    -Wunused-parameter
+    -Wshadow
+    -Wcast-qual
+    -Wformat=2
+    -Wformat-security
+    -Wstrict-overflow=5
+    -Warray-bounds
+    -Wmaybe-uninitialized
+    
+    ; C++ specific
+    -Wold-style-cast
+    -Woverloaded-virtual
+    -Wnon-virtual-dtor
+    
+    ; Platform-specific
+    -Wno-unknown-pragmas  ; Only if necessary for platform compatibility
+
+; NEVER use build_unflags to remove warnings
+; build_unflags = -Werror  ; ❌ NEVER DO THIS
+```
+
+## Static Analysis
+
+### Additional Tools
+
+```ini
+; Enable static analysis in platformio.ini
+[env]
+check_tool = cppcheck
+check_flags = 
+    --enable=all
+    --suppress=missingIncludeSystem
+    --suppress=unusedFunction
+```
+
+### Manual Checks
+
+```bash
+# Run static analysis
+pio check
+
+# Check for specific issues
+pio check --pattern="*warning*"
+
+# Never ignore check results
+# Fix all issues before committing
+```
+
+## Code Review Checklist
+
+When reviewing code, ensure:
+
+- [ ] No `#pragma` directives suppressing warnings
+- [ ] No `(void)variable` casts to suppress warnings
+- [ ] No `build_unflags` removing warning flags
+- [ ] All compiler warnings are resolved
+- [ ] All static analysis warnings are addressed
+- [ ] Type conversions are explicit
+- [ ] Return values are checked
+- [ ] Variables are initialized
+- [ ] Format strings match arguments
+- [ ] No shadowing of variables
+
+## Best Practices Summary
+
+1. **Treat Warnings as Errors**: Use `-Werror` flag
+2. **Enable All Warnings**: Use `-Wall -Wextra -Wpedantic`
+3. **Fix, Don't Suppress**: Address root cause, never hide warnings
+4. **Explicit Conversions**: Use static_cast, not C-style casts
+5. **Initialize Variables**: Always initialize before use
+6. **Check Return Values**: Never ignore function return values
+7. **Validate Bounds**: Check array bounds and buffer sizes
+8. **Type Safety**: Use correct types and format specifiers
+9. **No Suppression**: Never use pragmas or casts to suppress warnings
+10. **Code Review**: Verify no warnings are hidden in reviews

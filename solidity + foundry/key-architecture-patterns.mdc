@@ -1,0 +1,544 @@
+---
+description: Key architectural patterns and organizational principles for Solidity smart contracts
+globs:
+  - "**/*.sol"
+alwaysApply: true
+---
+
+# Key Architectural Patterns
+
+## Overview
+
+This document outlines the core architectural patterns used throughout Solidity smart contract development. These patterns ensure consistency, security, maintainability, and gas efficiency.
+
+## Contract Organization
+
+### Separation of Concerns
+
+Organize contracts by responsibility:
+
+```
+src/
+├── contracts/
+│   ├── core/              # Core business logic
+│   │   ├── Token.sol
+│   │   └── Vault.sol
+│   ├── access/            # Access control
+│   │   ├── Ownable.sol
+│   │   └── Roles.sol
+│   ├── interfaces/        # Interfaces
+│   │   ├── IToken.sol
+│   │   └── IVault.sol
+│   └── utils/             # Utilities
+│       └── Errors.sol
+├── libraries/             # Reusable libraries
+│   └── Math.sol
+└── mocks/                 # Mock contracts for testing
+    └── MockERC20.sol
+```
+
+### Interface Pattern
+
+Define interfaces before implementations:
+
+```solidity
+// ✅ GOOD - Interface first
+// interfaces/IToken.sol
+interface IToken {
+    function transfer(address to, uint256 amount) external returns (bool);
+    function balanceOf(address account) external view returns (uint256);
+}
+
+// contracts/Token.sol
+contract Token is IToken {
+    function transfer(address to, uint256 amount) external override returns (bool) {
+        // Implementation
+    }
+    
+    function balanceOf(address account) external view override returns (uint256) {
+        // Implementation
+    }
+}
+```
+
+## Access Control Patterns
+
+### 1. Ownable Pattern
+
+Simple ownership pattern:
+
+```solidity
+// ✅ GOOD - Using OpenZeppelin Ownable
+import "@openzeppelin/contracts/access/Ownable.sol";
+
+contract Token is Ownable {
+    function mint(address to, uint256 amount) external onlyOwner {
+        // Only owner can mint
+    }
+    
+    function transferOwnership(address newOwner) public override onlyOwner {
+        super.transferOwnership(newOwner);
+    }
+}
+```
+
+### 2. Role-Based Access Control (RBAC)
+
+More granular access control:
+
+```solidity
+// ✅ GOOD - Using OpenZeppelin AccessControl
+import "@openzeppelin/contracts/access/AccessControl.sol";
+
+contract Token is AccessControl {
+    bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
+    bytes32 public constant BURNER_ROLE = keccak256("BURNER_ROLE");
+    
+    constructor() {
+        _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
+    }
+    
+    function mint(address to, uint256 amount) external onlyRole(MINTER_ROLE) {
+        // Only minters can mint
+    }
+    
+    function burn(uint256 amount) external onlyRole(BURNER_ROLE) {
+        // Only burners can burn
+    }
+}
+```
+
+### 3. Custom Access Control
+
+For specific requirements:
+
+```solidity
+// ✅ GOOD - Custom access control
+contract Token {
+    address public owner;
+    mapping(address => bool) public authorized;
+    
+    error Unauthorized(address account);
+    
+    modifier onlyOwner() {
+        if (msg.sender != owner) {
+            revert Unauthorized(msg.sender);
+        }
+        _;
+    }
+    
+    modifier onlyAuthorized() {
+        if (!authorized[msg.sender] && msg.sender != owner) {
+            revert Unauthorized(msg.sender);
+        }
+        _;
+    }
+    
+    constructor() {
+        owner = msg.sender;
+    }
+    
+    function setAuthorized(address account, bool status) external onlyOwner {
+        authorized[account] = status;
+    }
+}
+```
+
+## Upgradeability Patterns
+
+### 1. UUPS (Universal Upgradeable Proxy Standard)
+
+Gas-efficient upgradeable pattern:
+
+```solidity
+// ✅ GOOD - UUPS Pattern
+import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+
+contract TokenV1 is UUPSUpgradeable, OwnableUpgradeable {
+    uint256 public value;
+    
+    function initialize() public initializer {
+        __Ownable_init();
+        __UUPSUpgradeable_init();
+        value = 100;
+    }
+    
+    function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
+    
+    function setValue(uint256 _value) external {
+        value = _value;
+    }
+}
+
+contract TokenV2 is TokenV1 {
+    uint256 public newValue;
+    
+    function initializeV2() public reinitializer(2) {
+        newValue = 200;
+    }
+}
+```
+
+### 2. Transparent Proxy Pattern
+
+Simpler but less gas efficient:
+
+```solidity
+// ✅ GOOD - Transparent Proxy Pattern
+import "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
+
+// Implementation contract
+contract TokenImplementation {
+    uint256 public value;
+    
+    function setValue(uint256 _value) external {
+        value = _value;
+    }
+}
+
+// Deploy proxy pointing to implementation
+// TransparentUpgradeableProxy(implementation, admin, data)
+```
+
+## Factory Patterns
+
+### 1. Factory Contract
+
+Create multiple instances:
+
+```solidity
+// ✅ GOOD - Factory pattern
+contract TokenFactory {
+    Token[] public tokens;
+    
+    event TokenCreated(address indexed token, address indexed creator);
+    
+    function createToken(string memory name, string memory symbol) external returns (address) {
+        Token newToken = new Token(name, symbol);
+        tokens.push(newToken);
+        emit TokenCreated(address(newToken), msg.sender);
+        return address(newToken);
+    }
+    
+    function getTokenCount() external view returns (uint256) {
+        return tokens.length;
+    }
+}
+```
+
+### 2. Clone Factory (Minimal Proxy)
+
+Gas-efficient cloning:
+
+```solidity
+// ✅ GOOD - Clone factory using EIP-1167
+import "@openzeppelin/contracts/proxy/Clones.sol";
+
+contract TokenFactory {
+    address public immutable tokenImplementation;
+    
+    event TokenCloned(address indexed clone, address indexed creator);
+    
+    constructor(address _tokenImplementation) {
+        tokenImplementation = _tokenImplementation;
+    }
+    
+    function cloneToken() external returns (address) {
+        address clone = Clones.clone(tokenImplementation);
+        Token(clone).initialize(msg.sender);
+        emit TokenCloned(clone, msg.sender);
+        return clone;
+    }
+}
+```
+
+## Library Patterns
+
+### 1. Internal Libraries
+
+For internal use:
+
+```solidity
+// ✅ GOOD - Internal library
+library Math {
+    function max(uint256 a, uint256 b) internal pure returns (uint256) {
+        return a > b ? a : b;
+    }
+    
+    function min(uint256 a, uint256 b) internal pure returns (uint256) {
+        return a < b ? a : b;
+    }
+}
+
+contract Token {
+    using Math for uint256;
+    
+    function getMax(uint256 a, uint256 b) external pure returns (uint256) {
+        return a.max(b);
+    }
+}
+```
+
+### 2. External Libraries
+
+For deployment and reuse:
+
+```solidity
+// ✅ GOOD - External library
+library SafeMath {
+    function add(uint256 a, uint256 b) external pure returns (uint256) {
+        return a + b;
+    }
+}
+
+contract Token {
+    function calculate(uint256 a, uint256 b) external pure returns (uint256) {
+        return SafeMath.add(a, b);
+    }
+}
+```
+
+## Event Patterns
+
+### 1. Comprehensive Event Emission
+
+Emit events for all important state changes:
+
+```solidity
+// ✅ GOOD - Comprehensive events
+contract Token {
+    event Transfer(address indexed from, address indexed to, uint256 value);
+    event Approval(address indexed owner, address indexed spender, uint256 value);
+    event Mint(address indexed to, uint256 amount);
+    event Burn(address indexed from, uint256 amount);
+    
+    function transfer(address to, uint256 amount) external returns (bool) {
+        // ... transfer logic ...
+        emit Transfer(msg.sender, to, amount);
+        return true;
+    }
+    
+    function mint(address to, uint256 amount) external {
+        // ... mint logic ...
+        emit Mint(to, amount);
+        emit Transfer(address(0), to, amount);
+    }
+}
+```
+
+### 2. Indexed Parameters
+
+Use indexed parameters for filtering:
+
+```solidity
+// ✅ GOOD - Indexed parameters for filtering
+event Transfer(address indexed from, address indexed to, uint256 value);
+event Approval(address indexed owner, address indexed spender, uint256 value);
+
+// Can filter by: Transfer(from=address, to=address)
+```
+
+## Error Patterns
+
+### 1. Centralized Errors
+
+Define errors in separate file:
+
+```solidity
+// errors/CommonErrors.sol
+library CommonErrors {
+    error InsufficientBalance(uint256 required, uint256 available);
+    error Unauthorized(address account);
+    error InvalidAddress(address provided);
+}
+
+// contracts/Token.sol
+import "./errors/CommonErrors.sol";
+
+contract Token {
+    using CommonErrors for *;
+    
+    function transfer(address to, uint256 amount) external {
+        if (balances[msg.sender] < amount) {
+            revert CommonErrors.InsufficientBalance(amount, balances[msg.sender]);
+        }
+        // ...
+    }
+}
+```
+
+### 2. Contract-Specific Errors
+
+Define errors at contract level:
+
+```solidity
+// ✅ GOOD - Contract-specific errors
+contract Token {
+    error MaxSupplyExceeded(uint256 requested, uint256 max);
+    error MintingPaused();
+    
+    function mint(address to, uint256 amount) external {
+        if (paused) {
+            revert MintingPaused();
+        }
+        // ...
+    }
+}
+```
+
+## Modifier Patterns
+
+### 1. Reusable Modifiers
+
+Create reusable modifiers:
+
+```solidity
+// ✅ GOOD - Reusable modifiers
+contract Token {
+    modifier onlyWhenNotPaused() {
+        require(!paused, "Contract is paused");
+        _;
+    }
+    
+    modifier onlyWhenPaused() {
+        require(paused, "Contract is not paused");
+        _;
+    }
+    
+    function transfer(address to, uint256 amount) external onlyWhenNotPaused {
+        // ...
+    }
+    
+    function emergencyWithdraw() external onlyWhenPaused {
+        // ...
+    }
+}
+```
+
+### 2. Parameterized Modifiers
+
+Modifiers with parameters:
+
+```solidity
+// ✅ GOOD - Parameterized modifier
+contract Token {
+    modifier onlyWhenBalanceAtLeast(uint256 amount) {
+        require(balances[msg.sender] >= amount, "Insufficient balance");
+        _;
+    }
+    
+    function withdraw(uint256 amount) external onlyWhenBalanceAtLeast(amount) {
+        // ...
+    }
+}
+```
+
+## Storage Patterns
+
+### 1. Storage Layout
+
+Organize storage variables:
+
+```solidity
+// ✅ GOOD - Organized storage layout
+contract Token {
+    // Constants
+    uint256 public constant MAX_SUPPLY = 1_000_000_000;
+    
+    // Core state
+    mapping(address => uint256) public balances;
+    mapping(address => mapping(address => uint256)) public allowances;
+    
+    // Configuration
+    bool public paused;
+    address public owner;
+    
+    // Packed structs
+    struct UserData {
+        uint128 balance;
+        uint64 timestamp;
+        bool active;
+    }
+    mapping(address => UserData) public userData;
+}
+```
+
+### 2. Storage Gaps
+
+For upgradeable contracts:
+
+```solidity
+// ✅ GOOD - Storage gaps for upgradeability
+contract Token {
+    uint256 public value;
+    uint256[49] private __gap;  // Reserve storage slots for future upgrades
+}
+```
+
+## Best Practices
+
+### 1. Use Interfaces for Abstraction
+
+```solidity
+// ✅ GOOD - Interface-based design
+interface IVault {
+    function deposit(uint256 amount) external;
+    function withdraw(uint256 amount) external;
+}
+
+contract Vault is IVault {
+    // Implementation
+}
+
+contract VaultManager {
+    IVault public vault;
+    
+    constructor(IVault _vault) {
+        vault = _vault;
+    }
+    
+    function manageDeposit(uint256 amount) external {
+        vault.deposit(amount);
+    }
+}
+```
+
+### 2. Composition Over Inheritance
+
+```solidity
+// ✅ GOOD - Composition
+contract Token {
+    Ownable public ownable;
+    
+    constructor() {
+        ownable = new Ownable();
+    }
+    
+    modifier onlyOwner() {
+        require(ownable.owner() == msg.sender, "Not owner");
+        _;
+    }
+}
+```
+
+### 3. Minimal External Dependencies
+
+```solidity
+// ✅ GOOD - Minimal dependencies
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+
+// Only import what you need
+```
+
+## Remember
+
+- **Separation of Concerns** - Organize by responsibility
+- **Interfaces First** - Define interfaces before implementations
+- **Access Control** - Implement proper access control
+- **Events** - Emit events for important state changes
+- **Errors** - Use custom errors for gas efficiency
+- **Modifiers** - Create reusable modifiers
+- **Storage Layout** - Organize storage variables efficiently
+- **Composition** - Prefer composition over inheritance when possible

@@ -1,0 +1,347 @@
+---
+description: Logging standards for Python FastAPI applications with emphasis on minimal logging by default
+globs:
+  - "**/*.py"
+alwaysApply: true
+---
+
+# Logging Guidelines
+
+## Introduction
+
+### ⚠️ CRITICAL DEFAULT BEHAVIOR
+
+**BY DEFAULT: DO NOT ADD LOGS TO YOUR CODE**
+
+**Only add logging when:**
+1. Explicitly requested by the user/stakeholder
+2. Debugging a specific issue (temporary, remove after resolution)
+3. Required for production monitoring (errors, critical operations)
+
+**Default behavior when writing code:**
+- ✅ Write code without logging statements
+- ✅ Focus on proper error handling instead of logging
+- ✅ Use type hints and exceptions for debugging
+- ❌ Do NOT add `logger.info()`, `logger.debug()`, or `print()` by default
+- ❌ Do NOT add logging "just in case" or for future debugging
+
+**When logging IS needed (after explicit request):**
+Follow all guidelines below for proper logging implementation.
+
+---
+
+This document outlines the mandatory rules and best practices for implementing logging within the FastAPI application using Python's `logging` module. Adherence to these guidelines is crucial for maintaining consistent, informative, and manageable logs across the application.
+
+The primary goals are:
+
+1. **Consistency:** Ensure logs follow a standard format and approach
+2. **Context:** Provide sufficient context within logs for effective debugging
+3. **Performance:** Avoid negatively impacting application performance
+4. **Security:** Prevent logging sensitive information
+5. **Manageability:** Structure logs appropriately for different environments and potential aggregation tools
+
+## General Logging Principles
+
+- **Context is Key:** Always include relevant context in your log messages. Use structured logging with extra fields for IDs (e.g., `user_id`, `request_id`, `workflow_id`).
+- **Appropriate Levels:** Use the correct log level (`error`, `warning`, `info`, `debug`) based on the severity and purpose of the message.
+- **Be Descriptive:** Log messages should clearly explain the event or state being logged.
+- **Avoid Sensitive Data:** **NEVER** log passwords, API keys, full access tokens, personally identifiable information (PII), or other sensitive credentials. Mask or omit this data.
+- **Structured Logging:** Use structured logging with extra fields for better parsing and filtering.
+- **Error Objects:** When logging errors, log the `Exception` object itself to capture stack traces.
+
+## Logger Setup
+
+**Location:** `app/core/logging.py`
+
+**Configuration:**
+
+```python
+# app/core/logging.py
+import logging
+import sys
+from typing import Optional
+
+from app.core.config import settings
+
+
+def setup_logging() -> None:
+    """Configure application logging."""
+    log_level = getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO)
+    
+    logging.basicConfig(
+        level=log_level,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+        handlers=[
+            logging.StreamHandler(sys.stdout),
+        ],
+    )
+    
+    # Set third-party loggers to WARNING
+    logging.getLogger("uvicorn").setLevel(logging.WARNING)
+    logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
+
+
+def get_logger(name: str) -> logging.Logger:
+    """Get logger instance for a module."""
+    return logging.getLogger(name)
+```
+
+## Log Levels Guidance
+
+Use log levels consistently:
+
+- **`ERROR` (40):** For actual errors, application failures, exceptions caught in `except` blocks, failed critical operations (e.g., failed DB write, failed critical API call). **These are essential for production monitoring.**
+- **`WARNING` (30):** For potential problems, unexpected situations that don't crash the app, use of deprecated features, non-critical API failures (e.g., optional data fetch failed). **Use judiciously in production.**
+- **`INFO` (20):** For high-level application lifecycle events (e.g., "Server started", "User logged in", "Workflow started/completed"), successful completion of major operations. **Should be relatively low volume in production.**
+- **`DEBUG` (10):** For detailed diagnostic information useful only during development and troubleshooting (e.g., variable values, function entry/exit, detailed state changes). **Should NOT be enabled in production.**
+
+**Rule:** The configured `LOG_LEVEL` environment variable determines the _maximum_ level that will be processed. Messages logged at a level _numerically higher_ than the configured level will be ignored (e.g., if `LOG_LEVEL=INFO`, `DEBUG` messages won't be processed).
+
+## Logging Patterns
+
+### 1. Service Layer Logging
+
+```python
+# app/services/user_service.py
+from app.core.logging import get_logger
+
+logger = get_logger(__name__)
+
+
+class UserService:
+    """Service for user-related business logic."""
+    
+    async def get_user_by_id(self, user_id: int) -> User:
+        """Get user by ID."""
+        logger.info(
+            "Fetching user profile",
+            extra={"user_id": user_id}
+        )
+        
+        try:
+            user = await self.repository.get_by_id(user_id)
+            
+            if not user:
+                logger.warning(
+                    "User not found",
+                    extra={"user_id": user_id}
+                )
+                raise NotFoundError("User")
+            
+            logger.info(
+                "User profile fetched successfully",
+                extra={"user_id": user_id}
+            )
+            
+            return user
+        except NotFoundError:
+            raise
+        except Exception as e:
+            logger.error(
+                "Failed to fetch user profile",
+                extra={
+                    "user_id": user_id,
+                    "error": str(e),
+                },
+                exc_info=True,
+            )
+            raise ApplicationError("Failed to fetch user profile") from e
+```
+
+### 2. API Route Logging
+
+```python
+# app/api/v1/endpoints/users.py
+from fastapi import APIRouter, Depends
+from app.core.logging import get_logger
+from app.api.dependencies import get_current_user
+
+logger = get_logger(__name__)
+router = APIRouter()
+
+
+@router.get("/users/{user_id}")
+async def get_user(
+    user_id: int,
+    current_user: User = Depends(get_current_user),
+):
+    """Get user endpoint."""
+    logger.info(
+        "API request: get user",
+        extra={
+            "user_id": user_id,
+            "request_user_id": current_user.id,
+            "endpoint": "/users/{user_id}",
+        }
+    )
+    
+    try:
+        user = await user_service.get_user_by_id(user_id)
+        logger.info(
+            "API request successful: get user",
+            extra={"user_id": user_id}
+        )
+        return user
+    except Exception as e:
+        logger.error(
+            "API request failed: get user",
+            extra={
+                "user_id": user_id,
+                "error": str(e),
+            },
+            exc_info=True,
+        )
+        raise
+```
+
+### 3. Error Logging
+
+```python
+# Always log errors with context and stack traces
+try:
+    result = await risky_operation()
+except Exception as e:
+    logger.error(
+        "Operation failed",
+        extra={
+            "operation": "risky_operation",
+            "user_id": user_id,
+            "error": str(e),
+        },
+        exc_info=True,  # Include stack trace
+    )
+    raise
+```
+
+### 4. Structured Logging
+
+```python
+# Use extra parameter for structured data
+logger.info(
+    "User created",
+    extra={
+        "user_id": user.id,
+        "email": user.email,  # Safe to log email
+        "created_at": user.created_at.isoformat(),
+    }
+)
+
+# ❌ NEVER log sensitive data
+logger.info(
+    "User created",
+    extra={
+        "password": user.password,  # ❌ NEVER DO THIS
+        "api_key": api_key,  # ❌ NEVER DO THIS
+    }
+)
+```
+
+## Middleware for Request Logging
+
+```python
+# app/core/middleware.py
+import time
+from fastapi import Request
+from starlette.middleware.base import BaseHTTPMiddleware
+from app.core.logging import get_logger
+
+logger = get_logger(__name__)
+
+
+class LoggingMiddleware(BaseHTTPMiddleware):
+    """Middleware for logging HTTP requests."""
+    
+    async def dispatch(self, request: Request, call_next):
+        """Log request and response."""
+        start_time = time.time()
+        
+        # Log request
+        logger.info(
+            "HTTP request started",
+            extra={
+                "method": request.method,
+                "path": request.url.path,
+                "client": request.client.host if request.client else None,
+            }
+        )
+        
+        try:
+            response = await call_next(request)
+            
+            # Calculate duration
+            duration = time.time() - start_time
+            
+            # Log response
+            logger.info(
+                "HTTP request completed",
+                extra={
+                    "method": request.method,
+                    "path": request.url.path,
+                    "status_code": response.status_code,
+                    "duration_ms": duration * 1000,
+                }
+            )
+            
+            return response
+        except Exception as e:
+            duration = time.time() - start_time
+            
+            logger.error(
+                "HTTP request failed",
+                extra={
+                    "method": request.method,
+                    "path": request.url.path,
+                    "duration_ms": duration * 1000,
+                    "error": str(e),
+                },
+                exc_info=True,
+            )
+            raise
+
+# app/main.py
+from app.core.middleware import LoggingMiddleware
+
+app.add_middleware(LoggingMiddleware)
+```
+
+## What to Log
+
+### Server-Side Logging
+
+- API request start/end (consider `INFO` level)
+- Significant state changes or operations (e.g., user signup, workflow execution start/end)
+- Successful completion of critical tasks
+- Errors and exceptions (always include the error object and stack trace)
+- Warnings about potential issues or deprecated usage
+- Detailed debugging information (`DEBUG` level) for development tracing
+
+## What NOT to Log
+
+- **Sensitive Data:** Passwords, API keys, tokens, credit card numbers, SSNs
+- **Large Objects:** Don't log entire request/response bodies
+- **Personal Information:** Be careful with PII (emails are usually OK, but be mindful)
+- **Debug Logs in Production:** Don't enable DEBUG level in production
+- **Excessive Verbosity:** Don't log every function call or variable value
+
+## Performance Considerations
+
+- **Async Logging:** Use async-compatible logging handlers if needed
+- **Minimal Impact:** Logging should not significantly impact request processing time
+- **Batch Logging:** For high-volume scenarios, consider batching logs
+- **Log Rotation:** Configure log rotation to prevent disk space issues
+
+## Best Practices
+
+1. **Use Structured Logging:** Include context in `extra` parameter
+2. **Log Errors Properly:** Always use `exc_info=True` for exceptions
+3. **Be Consistent:** Use consistent log message formats
+4. **Include Context:** Add relevant IDs, operations, and state
+5. **Security First:** Never log sensitive information
+6. **Appropriate Levels:** Use correct log levels for the situation
+7. **Performance Aware:** Don't log excessively in hot paths
+8. **Test Logging:** Verify logs in tests when testing error paths
+
+## Conclusion
+
+You **MUST** use the `get_logger(name)` function for all logging. Adhere strictly to the guidelines on what to log and which levels to use. Remember: **by default, do NOT add logging** - only add it when explicitly requested or for critical production monitoring needs.

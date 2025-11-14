@@ -1,0 +1,342 @@
+---
+description: Key architectural patterns and organizational principles for Python FastAPI codebase
+globs:
+  - "**/app/services/**"
+  - "**/app/repositories/**"
+  - "**/app/api/**"
+  - "**/app/models/**"
+alwaysApply: true
+---
+
+# Key Architectural Patterns
+
+## Overview
+
+This document outlines the core architectural patterns used throughout the FastAPI codebase. These patterns ensure consistency, maintainability, and separation of concerns.
+
+## Service Layer Pattern
+
+**Purpose:** Encapsulate business logic and orchestrate operations.
+
+**Location:** `app/services/` directory
+
+**Principles:**
+- API routes should be thin wrappers that delegate to service functions
+- All business logic lives in services, not in route handlers
+- Services handle data transformation, validation, and external API calls
+- Services are async functions that can be easily tested
+- Services use repositories for data access
+
+**Example:**
+
+```python
+# ❌ BAD - Business logic in route handler
+# app/api/v1/endpoints/users.py
+@router.post("/users", response_model=UserResponse)
+async def create_user(
+    user_data: UserCreate,
+    db: AsyncSession = Depends(get_db),
+) -> UserResponse:
+    # Business logic mixed with route handling
+    if await db.execute(select(User).where(User.email == user_data.email)):
+        raise HTTPException(status_code=400, detail="Email already exists")
+    
+    hashed_password = get_password_hash(user_data.password)
+    user = User(
+        email=user_data.email,
+        full_name=user_data.full_name,
+        hashed_password=hashed_password
+    )
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
+    
+    return UserResponse.from_orm(user)
+
+# ✅ GOOD - Business logic in service
+# app/services/user_service.py
+from typing import Optional
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.domain.user import User
+from app.repositories.user_repository import UserRepository
+from app.schemas.user import UserCreate, UserUpdate
+from app.core.security import get_password_hash, verify_password
+from app.core.exceptions import NotFoundError, ConflictError
+
+
+class UserService:
+    """Service for user-related business logic."""
+    
+    def __init__(self, db: AsyncSession):
+        self.db = db
+        self.repository = UserRepository(db)
+    
+    async def create_user(self, user_data: UserCreate) -> User:
+        """Create a new user."""
+        # Check if user exists
+        existing_user = await self.repository.get_by_email(user_data.email)
+        if existing_user:
+            raise ConflictError("User with this email already exists")
+        
+        # Hash password
+        hashed_password = get_password_hash(user_data.password)
+        
+        # Create user
+        user = User(
+            email=user_data.email,
+            full_name=user_data.full_name,
+            hashed_password=hashed_password,
+            is_active=True,
+        )
+        
+        return await self.repository.create(user)
+    
+    async def get_user_by_id(self, user_id: int) -> Optional[User]:
+        """Get user by ID."""
+        user = await self.repository.get_by_id(user_id)
+        if not user:
+            raise NotFoundError("User not found")
+        return user
+    
+    async def update_user(self, user_id: int, user_data: UserUpdate) -> User:
+        """Update user."""
+        user = await self.get_user_by_id(user_id)
+        
+        # Update fields
+        update_data = user_data.model_dump(exclude_unset=True)
+        for field, value in update_data.items():
+            setattr(user, field, value)
+        
+        return await self.repository.update(user)
+
+# app/api/v1/endpoints/users.py
+@router.post("/users", response_model=UserResponse)
+async def create_user(
+    user_data: UserCreate,
+    db: AsyncSession = Depends(get_db),
+) -> UserResponse:
+    """Create a new user."""
+    user_service = UserService(db)
+    user = await user_service.create_user(user_data)
+    return UserResponse.from_orm(user)
+```
+
+## Repository Pattern
+
+**Purpose:** Abstract data access layer and provide a clean interface for database operations.
+
+**Location:** `app/repositories/` directory
+
+**Principles:**
+- Encapsulate all database queries
+- Provide a consistent interface for data access
+- Hide SQLAlchemy implementation details
+- Support async operations
+- Handle transactions at the service layer
+
+**Example:**
+
+```python
+# app/repositories/user_repository.py
+from typing import Optional, List
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.database.user import User as UserModel
+from app.models.domain.user import User
+
+
+class UserRepository:
+    """Repository for user data access."""
+    
+    def __init__(self, db: AsyncSession):
+        self.db = db
+    
+    async def get_by_id(self, user_id: int) -> Optional[User]:
+        """Get user by ID."""
+        result = await self.db.execute(
+            select(UserModel).where(UserModel.id == user_id)
+        )
+        user_model = result.scalar_one_or_none()
+        return User.from_orm(user_model) if user_model else None
+    
+    async def get_by_email(self, email: str) -> Optional[User]:
+        """Get user by email."""
+        result = await self.db.execute(
+            select(UserModel).where(UserModel.email == email)
+        )
+        user_model = result.scalar_one_or_none()
+        return User.from_orm(user_model) if user_model else None
+    
+    async def create(self, user: User) -> User:
+        """Create a new user."""
+        user_model = UserModel(**user.model_dump())
+        self.db.add(user_model)
+        await self.db.flush()
+        await self.db.refresh(user_model)
+        return User.from_orm(user_model)
+    
+    async def update(self, user: User) -> User:
+        """Update user."""
+        result = await self.db.execute(
+            select(UserModel).where(UserModel.id == user.id)
+        )
+        user_model = result.scalar_one()
+        
+        for key, value in user.model_dump(exclude_unset=True).items():
+            setattr(user_model, key, value)
+        
+        await self.db.flush()
+        await self.db.refresh(user_model)
+        return User.from_orm(user_model)
+    
+    async def delete(self, user_id: int) -> None:
+        """Delete user."""
+        result = await self.db.execute(
+            select(UserModel).where(UserModel.id == user_id)
+        )
+        user_model = result.scalar_one_or_none()
+        if user_model:
+            await self.db.delete(user_model)
+            await self.db.flush()
+```
+
+## Domain Models vs Database Models
+
+**Purpose:** Separate domain logic from persistence concerns.
+
+**Structure:**
+
+```
+app/models/
+├── domain/          # Domain models (Pydantic)
+│   └── user.py
+└── database/        # Database models (SQLAlchemy)
+    └── user.py
+```
+
+**Example:**
+
+```python
+# app/models/domain/user.py
+from datetime import datetime
+from pydantic import BaseModel, EmailStr
+
+
+class User(BaseModel):
+    """Domain model for User."""
+    id: int
+    email: EmailStr
+    full_name: str
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+# app/models/database/user.py
+from datetime import datetime
+from sqlalchemy import Column, Integer, String, Boolean, DateTime
+from sqlalchemy.orm import relationship
+
+from app.core.database import Base
+
+
+class User(Base):
+    """Database model for User."""
+    __tablename__ = "users"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String, unique=True, index=True, nullable=False)
+    full_name = Column(String, nullable=False)
+    hashed_password = Column(String, nullable=False)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+```
+
+## Dependency Injection Pattern
+
+**Purpose:** Manage shared resources and dependencies.
+
+**Location:** `app/api/dependencies.py`
+
+**Example:**
+
+```python
+# app/api/dependencies.py
+from fastapi import Depends
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.database import get_db
+from app.services.user_service import UserService
+
+
+def get_user_service(
+    db: AsyncSession = Depends(get_db),
+) -> UserService:
+    """Get user service instance."""
+    return UserService(db)
+
+# Usage in route
+@router.get("/users/{user_id}")
+async def get_user(
+    user_id: int,
+    user_service: UserService = Depends(get_user_service),
+) -> UserResponse:
+    """Get user."""
+    user = await user_service.get_user_by_id(user_id)
+    return UserResponse.from_orm(user)
+```
+
+## Modular Router Pattern
+
+**Purpose:** Organize API routes by feature/domain.
+
+**Structure:**
+
+```
+app/api/
+├── v1/
+│   ├── endpoints/
+│   │   ├── users.py
+│   │   ├── auth.py
+│   │   └── items.py
+│   └── router.py
+```
+
+**Example:**
+
+```python
+# app/api/v1/endpoints/users.py
+from fastapi import APIRouter
+
+from app.api.v1.endpoints import auth, users, items
+
+api_router = APIRouter()
+
+api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
+api_router.include_router(users.router, prefix="/users", tags=["users"])
+api_router.include_router(items.router, prefix="/items", tags=["items"])
+
+# app/main.py
+from fastapi import FastAPI
+
+from app.api.v1.router import api_router
+
+app = FastAPI(title="My API", version="1.0.0")
+app.include_router(api_router, prefix="/api/v1")
+```
+
+## Best Practices
+
+1. **Separation of Concerns:** Keep routes thin, services focused, repositories isolated
+2. **Single Responsibility:** Each module/class should do one thing well
+3. **Testability:** Architecture should make testing easy (services are pure, repositories are isolated)
+4. **Consistency:** Follow these patterns consistently across the codebase
+5. **Type Safety:** Use type hints throughout, leverage Pydantic for validation
+6. **Async First:** All I/O operations should be async
+7. **Error Handling:** Use custom exceptions, handle at appropriate layer
+8. **Documentation:** Document architectural decisions and patterns in code comments

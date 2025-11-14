@@ -1,0 +1,692 @@
+---
+description: Logging guidelines and patterns for resource-constrained embedded systems
+globs:
+  - "**/*.cpp"
+  - "**/*.c"
+  - "**/*.h"
+  - "**/src/**"
+alwaysApply: true
+---
+
+# Logging Guidelines
+
+## Philosophy
+
+**⚠️ IMPORTANT: Only add logs when explicitly requested. By default, do NOT add logs.**
+
+Logging in embedded systems must balance debugging needs with severe resource constraints. Every byte of RAM and every CPU cycle matters. Production systems should have minimal or no logging to maximize performance and reliability.
+
+## Conditional Compilation
+
+### Debug Levels
+
+```cpp
+// Define debug levels in platformio.ini or build flags
+// -D DEBUG_LEVEL=0  // No debugging (production)
+// -D DEBUG_LEVEL=1  // Errors only
+// -D DEBUG_LEVEL=2  // Errors and warnings
+// -D DEBUG_LEVEL=3  // Errors, warnings, and info
+// -D DEBUG_LEVEL=4  // Everything including debug
+
+#ifndef DEBUG_LEVEL
+  #define DEBUG_LEVEL 0  // Default to no debugging
+#endif
+
+// Logging macros that compile out based on level
+#if DEBUG_LEVEL >= 1
+  #define LOG_ERROR(msg, ...) Serial.printf_P(PSTR("[ERROR] " msg "\n"), ##__VA_ARGS__)
+#else
+  #define LOG_ERROR(msg, ...) ((void)0)
+#endif
+
+#if DEBUG_LEVEL >= 2
+  #define LOG_WARN(msg, ...) Serial.printf_P(PSTR("[WARN] " msg "\n"), ##__VA_ARGS__)
+#else
+  #define LOG_WARN(msg, ...) ((void)0)
+#endif
+
+#if DEBUG_LEVEL >= 3
+  #define LOG_INFO(msg, ...) Serial.printf_P(PSTR("[INFO] " msg "\n"), ##__VA_ARGS__)
+#else
+  #define LOG_INFO(msg, ...) ((void)0)
+#endif
+
+#if DEBUG_LEVEL >= 4
+  #define LOG_DEBUG(msg, ...) Serial.printf_P(PSTR("[DEBUG] " msg "\n"), ##__VA_ARGS__)
+#else
+  #define LOG_DEBUG(msg, ...) ((void)0)
+#endif
+```
+
+### Feature-Specific Debug Flags
+
+```cpp
+// Fine-grained control over logging
+// Define in platformio.ini: -D DEBUG_SENSORS=1 -D DEBUG_NETWORK=0
+
+#ifdef DEBUG_SENSORS
+  #define LOG_SENSOR(msg, ...) LOG_DEBUG("[SENSOR] " msg, ##__VA_ARGS__)
+#else
+  #define LOG_SENSOR(msg, ...) ((void)0)
+#endif
+
+#ifdef DEBUG_NETWORK
+  #define LOG_NET(msg, ...) LOG_DEBUG("[NET] " msg, ##__VA_ARGS__)
+#else
+  #define LOG_NET(msg, ...) ((void)0)
+#endif
+
+#ifdef DEBUG_STATE
+  #define LOG_STATE(msg, ...) LOG_DEBUG("[STATE] " msg, ##__VA_ARGS__)
+#else
+  #define LOG_STATE(msg, ...) ((void)0)
+#endif
+
+// Usage
+void readSensor() {
+  LOG_SENSOR("Reading temperature sensor");
+  float temp = sensor.read();
+  LOG_SENSOR("Temperature: %.2f°C", temp);
+}
+```
+
+## Memory-Efficient Logging
+
+### PROGMEM String Storage
+
+```cpp
+// Store format strings in program memory
+#define LOG_P(level, msg, ...) \
+  do { \
+    if (DEBUG_LEVEL >= level) { \
+      static const char fmt[] PROGMEM = msg; \
+      char buf[64]; \
+      snprintf_P(buf, sizeof(buf), fmt, ##__VA_ARGS__); \
+      Serial.print(F("[" #level "] ")); \
+      Serial.println(buf); \
+    } \
+  } while(0)
+
+// Centralized string storage
+namespace LogStrings {
+  const char INIT_START[] PROGMEM = "System initialization started";
+  const char INIT_DONE[] PROGMEM = "System initialization complete";
+  const char SENSOR_ERROR[] PROGMEM = "Sensor error: %s";
+  const char MEMORY_LOW[] PROGMEM = "Low memory: %u bytes free";
+  const char NETWORK_CONNECTED[] PROGMEM = "Network connected: %s";
+}
+
+// Usage
+LOG_INFO(LogStrings::INIT_START);
+LOG_ERROR(LogStrings::SENSOR_ERROR, sensor.getErrorString());
+```
+
+### Minimal Logger Class
+
+```cpp
+// Lightweight logger with compile-time optimization
+class Logger {
+private:
+  static constexpr size_t BUFFER_SIZE = 80;
+  char buffer_[BUFFER_SIZE];
+  Stream* output_;
+  bool enabled_;
+  
+public:
+  enum Level {
+    ERROR = 1,
+    WARN = 2,
+    INFO = 3,
+    DEBUG = 4
+  };
+  
+  explicit Logger(Stream* output = &Serial) 
+      : output_(output), enabled_(DEBUG_LEVEL > 0) {}
+  
+  template<typename... Args>
+  void log(Level level, const __FlashStringHelper* format, Args... args) {
+    if (!enabled_ || level > DEBUG_LEVEL) return;
+    
+    // Print timestamp
+    output_->print(F("["));
+    output_->print(millis());
+    output_->print(F("] "));
+    
+    // Print level
+    output_->print(getLevelString(level));
+    output_->print(F(" "));
+    
+    // Print message
+    snprintf_P(buffer_, BUFFER_SIZE, 
+               reinterpret_cast<const char*>(format), args...);
+    output_->println(buffer_);
+  }
+  
+  void setEnabled(bool enabled) { enabled_ = enabled && (DEBUG_LEVEL > 0); }
+  
+private:
+  const __FlashStringHelper* getLevelString(Level level) {
+    switch (level) {
+      case ERROR: return F("[ERROR]");
+      case WARN:  return F("[WARN]");
+      case INFO:  return F("[INFO]");
+      case DEBUG: return F("[DEBUG]");
+      default:    return F("[?]");
+    }
+  }
+};
+
+// Global logger instance (only if debugging enabled)
+#if DEBUG_LEVEL > 0
+  Logger logger(&Serial);
+#endif
+
+// Convenience macros
+#if DEBUG_LEVEL > 0
+  #define LOG(level, format, ...) logger.log(Logger::level, F(format), ##__VA_ARGS__)
+#else
+  #define LOG(level, format, ...) ((void)0)
+#endif
+```
+
+## Performance-Aware Logging
+
+### Non-Blocking Serial Output
+
+```cpp
+// Asynchronous logger to prevent blocking
+template<size_t QUEUE_SIZE = 256>
+class AsyncLogger {
+private:
+  struct LogEntry {
+    uint32_t timestamp;
+    uint8_t level;
+    char message[48];  // Fixed size for simplicity
+  };
+  
+  LogEntry queue_[QUEUE_SIZE];
+  volatile uint8_t head_ = 0;
+  volatile uint8_t tail_ = 0;
+  Stream* output_;
+  
+public:
+  explicit AsyncLogger(Stream* output) : output_(output) {}
+  
+  // Called from anywhere (including ISR)
+  void logAsync(uint8_t level, const char* msg) {
+    uint8_t next = (head_ + 1) % QUEUE_SIZE;
+    if (next == tail_) return;  // Queue full, drop message
+    
+    LogEntry& entry = queue_[head_];
+    entry.timestamp = millis();
+    entry.level = level;
+    strncpy(entry.message, msg, sizeof(entry.message) - 1);
+    entry.message[sizeof(entry.message) - 1] = '\0';
+    
+    head_ = next;
+  }
+  
+  // Called from main loop
+  void process() {
+    while (tail_ != head_) {
+      const LogEntry& entry = queue_[tail_];
+      
+      output_->print('[');
+      output_->print(entry.timestamp);
+      output_->print(F("] "));
+      output_->print(getLevelChar(entry.level));
+      output_->print(' ');
+      output_->println(entry.message);
+      
+      tail_ = (tail_ + 1) % QUEUE_SIZE;
+    }
+  }
+  
+private:
+  char getLevelChar(uint8_t level) {
+    switch (level) {
+      case 1: return 'E';
+      case 2: return 'W';
+      case 3: return 'I';
+      case 4: return 'D';
+      default: return '?';
+    }
+  }
+};
+
+#if DEBUG_LEVEL > 0
+  AsyncLogger<128> asyncLog(&Serial);
+#endif
+```
+
+### Rate-Limited Logging
+
+```cpp
+// Prevent log spam from high-frequency events
+class RateLimitedLogger {
+private:
+  struct LogSlot {
+    uint32_t lastLog;
+    uint32_t count;
+    uint32_t hash;
+  };
+  
+  static constexpr size_t MAX_SLOTS = 8;
+  LogSlot slots_[MAX_SLOTS];
+  uint32_t minInterval_;
+  
+public:
+  explicit RateLimitedLogger(uint32_t minIntervalMs = 1000)
+      : minInterval_(minIntervalMs) {
+    memset(slots_, 0, sizeof(slots_));
+  }
+  
+  bool shouldLog(const char* message) {
+    uint32_t hash = calculateHash(message);
+    uint32_t now = millis();
+    
+    // Find or create slot
+    LogSlot* slot = findSlot(hash);
+    if (!slot) {
+      // No free slots, use oldest
+      slot = &slots_[0];
+      for (size_t i = 1; i < MAX_SLOTS; i++) {
+        if (slots_[i].lastLog < slot->lastLog) {
+          slot = &slots_[i];
+        }
+      }
+      slot->hash = hash;
+      slot->count = 0;
+    }
+    
+    // Check rate limit
+    if (now - slot->lastLog >= minInterval_) {
+      if (slot->count > 0) {
+        // Log suppression count
+        Serial.print(F("[Suppressed "));
+        Serial.print(slot->count);
+        Serial.println(F(" similar messages]"));
+      }
+      
+      slot->lastLog = now;
+      slot->count = 0;
+      return true;
+    }
+    
+    slot->count++;
+    return false;
+  }
+  
+private:
+  uint32_t calculateHash(const char* str) {
+    uint32_t hash = 5381;
+    while (*str) {
+      hash = ((hash << 5) + hash) + *str++;
+    }
+    return hash;
+  }
+  
+  LogSlot* findSlot(uint32_t hash) {
+    for (size_t i = 0; i < MAX_SLOTS; i++) {
+      if (slots_[i].hash == hash) {
+        return &slots_[i];
+      }
+    }
+    return nullptr;
+  }
+};
+
+// Usage
+#if DEBUG_LEVEL > 0
+  RateLimitedLogger rateLimiter(5000);  // Max once per 5 seconds
+  
+  #define LOG_RATE_LIMITED(msg) \
+    do { \
+      if (rateLimiter.shouldLog(msg)) { \
+        Serial.println(F(msg)); \
+      } \
+    } while(0)
+#else
+  #define LOG_RATE_LIMITED(msg) ((void)0)
+#endif
+```
+
+## Structured Logging
+
+### Binary Logging
+
+```cpp
+// Compact binary logging for data analysis
+class BinaryLogger {
+public:
+  enum EventType : uint8_t {
+    SYSTEM_START = 0x01,
+    SENSOR_READ = 0x02,
+    ERROR_OCCURRED = 0x03,
+    STATE_CHANGE = 0x04,
+    // ... up to 255 event types
+  };
+  
+  struct LogPacket {
+    uint32_t timestamp;
+    uint8_t type;
+    uint8_t data[11];  // Total 16 bytes
+  } __attribute__((packed));
+  
+  static void logEvent(EventType type, const void* data = nullptr, size_t len = 0) {
+    #if DEBUG_LEVEL > 0
+    LogPacket packet;
+    packet.timestamp = millis();
+    packet.type = type;
+    
+    if (data && len > 0) {
+      memcpy(packet.data, data, min(len, sizeof(packet.data)));
+    } else {
+      memset(packet.data, 0, sizeof(packet.data));
+    }
+    
+    // Send as binary
+    Serial.write(reinterpret_cast<uint8_t*>(&packet), sizeof(packet));
+    #endif
+  }
+  
+  // Specific event loggers
+  static void logSensorReading(uint8_t sensorId, float value) {
+    struct {
+      uint8_t id;
+      float value;
+    } __attribute__((packed)) data = {sensorId, value};
+    
+    logEvent(SENSOR_READ, &data, sizeof(data));
+  }
+  
+  static void logError(ErrorCode code, uint16_t location) {
+    struct {
+      int8_t code;
+      uint16_t location;
+    } __attribute__((packed)) data = {static_cast<int8_t>(code), location};
+    
+    logEvent(ERROR_OCCURRED, &data, sizeof(data));
+  }
+};
+```
+
+### JSON Logging (for WiFi-enabled devices)
+
+```cpp
+#ifdef HAS_WIFI
+// Structured JSON logging for network transmission
+class JsonLogger {
+private:
+  static constexpr size_t BUFFER_SIZE = 256;
+  char buffer_[BUFFER_SIZE];
+  
+public:
+  void logJson(const char* event, const char* level = "INFO") {
+    // Build JSON manually to avoid ArduinoJson overhead
+    snprintf(buffer_, BUFFER_SIZE,
+             "{\"t\":%lu,\"e\":\"%s\",\"l\":\"%s\",\"m\":%u}",
+             millis(), event, level, ESP.getFreeHeap());
+    
+    // Send over network or serial
+    sendLog(buffer_);
+  }
+  
+  template<typename T>
+  void logMetric(const char* metric, T value) {
+    snprintf(buffer_, BUFFER_SIZE,
+             "{\"t\":%lu,\"m\":\"%s\",\"v\":",
+             millis(), metric);
+    
+    // Type-specific formatting
+    size_t len = strlen(buffer_);
+    if constexpr (std::is_floating_point_v<T>) {
+      dtostrf(value, 0, 2, buffer_ + len);
+    } else {
+      snprintf(buffer_ + len, BUFFER_SIZE - len, "%d", value);
+    }
+    
+    strcat(buffer_, "}");
+    sendLog(buffer_);
+  }
+  
+private:
+  void sendLog(const char* json) {
+    // Send via UDP, MQTT, or HTTP
+    #ifdef DEBUG_NETWORK
+    udpClient.beginPacket(logServerIP, logServerPort);
+    udpClient.print(json);
+    udpClient.endPacket();
+    #endif
+    
+    // Also log to serial in debug mode
+    #if DEBUG_LEVEL >= 3
+    Serial.println(json);
+    #endif
+  }
+};
+#endif
+```
+
+## Production Logging
+
+### Minimal Error Logging
+
+```cpp
+// Production systems should only log critical errors
+#ifdef PRODUCTION_BUILD
+  #undef DEBUG_LEVEL
+  #define DEBUG_LEVEL 1  // Errors only
+  
+  // Ultra-minimal error logger
+  class ProductionLogger {
+  private:
+    static constexpr size_t ERROR_HISTORY = 8;
+    struct ErrorRecord {
+      uint32_t timestamp;
+      int8_t code;
+    } errors_[ERROR_HISTORY];
+    uint8_t errorIndex_ = 0;
+    
+  public:
+    void logError(ErrorCode code) {
+      errors_[errorIndex_] = {millis(), static_cast<int8_t>(code)};
+      errorIndex_ = (errorIndex_ + 1) % ERROR_HISTORY;
+      
+      // Blink LED pattern for error
+      blinkErrorCode(code);
+    }
+    
+    // Dump errors on request (maintenance mode)
+    void dumpErrors(Stream& output) {
+      output.println(F("Error History:"));
+      for (size_t i = 0; i < ERROR_HISTORY; i++) {
+        if (errors_[i].timestamp > 0) {
+          output.print(errors_[i].timestamp);
+          output.print(F(": "));
+          output.println(errors_[i].code);
+        }
+      }
+    }
+    
+  private:
+    void blinkErrorCode(ErrorCode code) {
+      // Visual indication without serial output
+      uint8_t blinks = abs(static_cast<int8_t>(code));
+      for (uint8_t i = 0; i < blinks; i++) {
+        digitalWrite(LED_BUILTIN, HIGH);
+        delay(200);
+        digitalWrite(LED_BUILTIN, LOW);
+        delay(200);
+      }
+    }
+  };
+#endif
+```
+
+### Telemetry Logging
+
+```cpp
+// Minimal telemetry for production monitoring
+class TelemetryLogger {
+private:
+  struct Metrics {
+    uint32_t uptime;
+    uint16_t freeMemory;
+    uint8_t cpuUsage;
+    int8_t temperature;
+    uint16_t errorCount;
+    uint8_t resetReason;
+  } __attribute__((packed));
+  
+  Metrics metrics_;
+  uint32_t lastReport_ = 0;
+  
+public:
+  void update() {
+    metrics_.uptime = millis() / 1000;  // Seconds
+    metrics_.freeMemory = getFreeMemory();
+    metrics_.cpuUsage = getCPUUsage();
+    metrics_.temperature = readInternalTemp();
+    // metrics_.errorCount incremented by error handler
+    
+    // Report periodically
+    if (millis() - lastReport_ > 300000) {  // Every 5 minutes
+      report();
+      lastReport_ = millis();
+    }
+  }
+  
+  void incrementErrorCount() {
+    if (metrics_.errorCount < UINT16_MAX) {
+      metrics_.errorCount++;
+    }
+  }
+  
+private:
+  void report() {
+    #ifdef HAS_NETWORK
+    // Send binary packet
+    sendTelemetry(&metrics_, sizeof(metrics_));
+    #else
+    // Store in EEPROM for later retrieval
+    EEPROM.put(TELEMETRY_ADDR, metrics_);
+    #endif
+  }
+  
+  uint16_t getFreeMemory() {
+    // Platform-specific implementation
+    return 0;
+  }
+  
+  uint8_t getCPUUsage() {
+    // Estimate based on idle time
+    return 0;
+  }
+  
+  int8_t readInternalTemp() {
+    // Read MCU temperature if available
+    return 25;  // Default
+  }
+};
+```
+
+## Debug Commands
+
+### Interactive Debug Shell
+
+```cpp
+#if DEBUG_LEVEL >= 3
+// Debug command interface
+class DebugShell {
+private:
+  struct Command {
+    const char* name;
+    void (*handler)(const char* args);
+    const char* help;
+  };
+  
+  static constexpr Command commands[] = {
+    {"help", cmdHelp, "Show this help"},
+    {"status", cmdStatus, "Show system status"},
+    {"mem", cmdMemory, "Show memory usage"},
+    {"log", cmdSetLogLevel, "Set log level (0-4)"},
+    {"reset", cmdReset, "Reset system"},
+    {"dump", cmdDumpLog, "Dump error log"},
+  };
+  
+public:
+  static void process() {
+    if (Serial.available()) {
+      static char cmdBuffer[32];
+      static uint8_t cmdIndex = 0;
+      
+      char c = Serial.read();
+      if (c == '\n' || c == '\r') {
+        cmdBuffer[cmdIndex] = '\0';
+        executeCommand(cmdBuffer);
+        cmdIndex = 0;
+      } else if (cmdIndex < sizeof(cmdBuffer) - 1) {
+        cmdBuffer[cmdIndex++] = c;
+      }
+    }
+  }
+  
+private:
+  static void executeCommand(char* cmd) {
+    char* cmdName = strtok(cmd, " ");
+    char* args = strtok(nullptr, "");
+    
+    for (const auto& command : commands) {
+      if (strcmp(cmdName, command.name) == 0) {
+        command.handler(args);
+        return;
+      }
+    }
+    
+    Serial.println(F("Unknown command. Type 'help' for help."));
+  }
+  
+  static void cmdHelp(const char* args) {
+    Serial.println(F("\nDebug Commands:"));
+    for (const auto& cmd : commands) {
+      Serial.print(F("  "));
+      Serial.print(cmd.name);
+      Serial.print(F(" - "));
+      Serial.println(cmd.help);
+    }
+  }
+  
+  static void cmdStatus(const char* args) {
+    Serial.println(F("\nSystem Status:"));
+    Serial.print(F("Uptime: "));
+    Serial.println(millis() / 1000);
+    Serial.print(F("Free RAM: "));
+    Serial.println(getFreeMemory());
+    // Add more status info
+  }
+  
+  static void cmdSetLogLevel(const char* args) {
+    if (args) {
+      int level = atoi(args);
+      // Runtime log level adjustment if supported
+      Serial.print(F("Log level set to: "));
+      Serial.println(level);
+    }
+  }
+};
+#endif
+```
+
+## Best Practices Summary
+
+1. **Production = No Logs**: Default to no logging in production builds
+2. **Compile-Time Control**: Use DEBUG_LEVEL to completely remove log code
+3. **PROGMEM Strings**: Store all log strings in program memory
+4. **Non-Blocking**: Never block on serial output
+5. **Rate Limiting**: Prevent log spam from high-frequency events
+6. **Binary Logging**: Use compact binary format for data logging
+7. **Error History**: Keep minimal error history for diagnostics
+8. **Visual Indicators**: Use LEDs for production error indication
+9. **Conditional Features**: Enable detailed logging only during development
+10. **Memory Awareness**: Monitor and limit memory usage from logging

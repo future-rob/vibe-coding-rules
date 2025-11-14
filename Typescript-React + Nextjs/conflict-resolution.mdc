@@ -1,0 +1,300 @@
+---
+description: Guidance for resolving conflicts when coding rules or guidelines conflict with each other
+globs:
+  - "**/*.ts"
+  - "**/*.tsx"
+alwaysApply: true
+---
+
+# Conflict Resolution Guidelines
+
+## Overview
+
+When coding rules or guidelines appear to conflict, use this document to determine the correct approach. These guidelines establish a hierarchy and decision-making process for resolving conflicts.
+
+## Rule Priority Hierarchy
+
+When rules conflict, follow this priority order:
+
+1. **Security & Safety** (Highest Priority)
+   - Security guidelines override all other rules
+   - Error handling patterns take precedence
+   - Never compromise security for convenience
+
+2. **No-Hiding Rule** (`no-hiding.mdc`)
+   - All lint errors must be fixed
+   - Cannot be overridden by other rules
+   - Type safety cannot be compromised
+
+3. **Architecture Patterns** (`key-architecture-patterns.mdc`)
+   - Service layer pattern
+   - Separation of concerns
+   - Registry patterns
+
+4. **Code Quality**
+   - TypeScript strict typing
+   - Testing requirements
+   - Error handling
+
+5. **Style & Formatting** (Lowest Priority)
+   - Naming conventions
+   - Formatting rules
+   - Code style
+
+## Common Conflict Scenarios
+
+### Scenario 1: Performance vs. Code Clarity
+
+**Conflict:** Performance optimization makes code less readable
+
+**Resolution:**
+1. **Measure first** - Verify the optimization is actually needed
+2. **Document the trade-off** - Add JSDoc explaining why
+3. **Extract to utility** - Move complex optimization to well-named function
+4. **Prefer clarity** - Unless performance is proven bottleneck
+
+```typescript
+// ✅ GOOD - Optimized but documented
+/**
+ * Uses memoization to prevent expensive recalculation.
+ * Performance-critical: called in render loop of 1000+ items.
+ */
+const processedData = useMemo(() => {
+  return expensiveCalculation(data);
+}, [data]);
+
+// ❌ BAD - Optimization without context
+const pd = useMemo(() => ec(d), [d]);
+```
+
+### Scenario 2: Logging Guidelines vs. Error Handling
+
+**Conflict:** Error handling patterns suggest logging, but logging guidelines say "don't log by default"
+
+**Resolution:**
+1. **Error handling takes precedence** - Errors should be logged
+2. **Use appropriate log level** - `logger.error()` for actual errors
+3. **Don't add info/debug logs** - Only log errors and critical operations
+
+```typescript
+// ✅ GOOD - Error logging is appropriate
+try {
+  await criticalOperation();
+} catch (error) {
+  logger.error('Critical operation failed', { error }); // ✅ Allowed
+  throw new ApplicationError('Operation failed', 500);
+}
+
+// ❌ BAD - Unnecessary info logging
+logger.info('Starting operation'); // ❌ Not needed by default
+await operation();
+logger.info('Operation completed'); // ❌ Not needed by default
+```
+
+### Scenario 3: Type Safety vs. Quick Fix
+
+**Conflict:** Quick fix suggests using `any`, but no-hiding rule forbids it
+
+**Resolution:**
+1. **No-hiding rule always wins** - Never use `any` or suppress errors
+2. **Take time to properly type** - It's worth the effort
+3. **Ask for help** - If unsure how to type, ask rather than suppress
+
+```typescript
+// ❌ BAD - Suppressing type error
+// @ts-ignore
+const result = unsafeOperation();
+
+// ✅ GOOD - Proper typing
+interface OperationResult {
+  value: unknown;
+  status: 'success' | 'error';
+}
+
+const result: OperationResult = safeOperation();
+```
+
+### Scenario 4: Architecture vs. Convenience
+
+**Conflict:** Easier to put logic in API route, but architecture says use service layer
+
+**Resolution:**
+1. **Architecture pattern takes precedence** - Always use service layer
+2. **Keep routes thin** - Delegate to services
+3. **Extract to service** - Even for simple operations
+
+```typescript
+// ❌ BAD - Logic in route
+export default async function handler(req, res) {
+  const processed = data.map(item => transform(item));
+  res.json(processed);
+}
+
+// ✅ GOOD - Logic in service
+export default async function handler(req, res) {
+  const processed = await processDataService(data);
+  res.json(processed);
+}
+```
+
+### Scenario 5: Testing vs. Time Constraints
+
+**Conflict:** Need to ship quickly, but testing guidelines require 100% coverage
+
+**Resolution:**
+1. **Testing is non-negotiable** - Services must have tests
+2. **Focus on critical paths** - Test the most important logic first
+3. **Don't skip tests** - They prevent future bugs
+
+```typescript
+// ❌ BAD - Skipping tests
+// TODO: Add tests later
+export async function criticalService() {
+  // No tests
+}
+
+// ✅ GOOD - At least basic tests
+describe('CriticalService', () => {
+  it('should handle happy path', async () => {
+    // Basic test
+  });
+  // Can add more tests in follow-up PR
+});
+```
+
+### Scenario 6: Styling vs. Consistency
+
+**Conflict:** New code style conflicts with existing codebase style
+
+**Resolution:**
+1. **Follow guidelines** - Use the documented style
+2. **Update existing code** - If guidelines changed, update gradually
+3. **Be consistent** - Don't mix styles in same file
+
+```typescript
+// ✅ GOOD - Consistent with guidelines
+const userName = user.name; // camelCase, descriptive
+
+// ❌ BAD - Mixing styles
+const userName = user.name; // Some places
+const uName = user.name; // Other places
+```
+
+## Decision-Making Process
+
+When encountering a conflict:
+
+### Step 1: Identify the Conflict
+
+- Which rules are conflicting?
+- What are the competing priorities?
+- What's the specific scenario?
+
+### Step 2: Check Priority Hierarchy
+
+- Refer to the priority hierarchy above
+- Determine which rule has higher priority
+- Check if there's a documented exception
+
+### Step 3: Consider Context
+
+- Is this a one-time exception or pattern?
+- What are the trade-offs?
+- What's the impact?
+
+### Step 4: Make Decision
+
+- Follow the higher-priority rule
+- Document the decision if non-obvious
+- Update guidelines if pattern emerges
+
+### Step 5: Document Exception (if needed)
+
+```typescript
+/**
+ * Uses 'any' here because [specific reason].
+ * 
+ * Exception to no-hiding rule approved by [team/lead] on [date].
+ * TODO: Refactor to proper types in [ticket/issue].
+ */
+function temporaryFunction(data: any) {
+  // ...
+}
+```
+
+## When to Update Guidelines
+
+Update guidelines when:
+
+1. **Pattern Emerges** - Same conflict happens multiple times
+2. **Team Consensus** - Team agrees on new approach
+3. **Best Practice Changes** - Industry standards evolve
+4. **Tool Updates** - New tools enable better patterns
+
+## Escalation
+
+If you cannot resolve a conflict:
+
+1. **Document the conflict** - Write down both sides
+2. **Discuss with team** - Get multiple perspectives
+3. **Seek team lead input** - For final decision
+4. **Update guidelines** - Document the resolution
+
+## Examples
+
+### Example 1: Performance Optimization
+
+**Situation:** Need to optimize a slow component, but optimization makes code complex
+
+**Resolution:**
+- Measure performance first
+- If optimization needed, implement it
+- Add JSDoc explaining the trade-off
+- Consider extracting to utility function
+
+### Example 2: Third-Party Library Limitation
+
+**Situation:** Library requires `any` type, but no-hiding rule forbids it
+
+**Resolution:**
+- Create wrapper function with proper types
+- Use type guards to narrow types
+- Document the limitation
+- Consider alternative library if too problematic
+
+### Example 3: Legacy Code Integration
+
+**Situation:** Integrating with legacy code that doesn't follow guidelines
+
+**Resolution:**
+- Create adapter layer following guidelines
+- Don't compromise new code for legacy
+- Gradually refactor legacy code
+- Document the integration approach
+
+## Remember
+
+- **Security and safety first** - Never compromise these
+- **No-hiding rule is absolute** - Fix errors, don't suppress
+- **Architecture patterns are important** - Follow them consistently
+- **When in doubt, ask** - Better to discuss than guess
+- **Document exceptions** - If you must break a rule, explain why
+
+## Quick Reference
+
+**Always Follow:**
+- Security guidelines
+- No-hiding rule
+- Architecture patterns
+- Type safety
+
+**Can Be Flexible:**
+- Code style (within reason)
+- Performance optimizations (measure first)
+- Testing scope (focus on critical paths)
+
+**Never Compromise:**
+- Security
+- Type safety
+- Error handling
+- Architecture separation

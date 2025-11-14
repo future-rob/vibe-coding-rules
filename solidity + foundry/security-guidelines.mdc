@@ -1,0 +1,502 @@
+---
+description: Security best practices and vulnerability prevention for Solidity smart contracts
+globs:
+  - "**/*.sol"
+alwaysApply: true
+---
+
+# Security Guidelines
+
+## Critical Importance
+
+**Security is the highest priority in smart contract development.** A single vulnerability can result in the loss of all funds. Always prioritize security over gas optimization or convenience.
+
+## Common Vulnerabilities
+
+### 1. Reentrancy Attacks
+
+**The Problem:** External calls can call back into your contract before state updates complete.
+
+**The Solution:** Use Checks-Effects-Interactions pattern and ReentrancyGuard.
+
+```solidity
+// ❌ BAD - Vulnerable to reentrancy
+contract Vulnerable {
+    mapping(address => uint256) public balances;
+    
+    function withdraw() external {
+        uint256 amount = balances[msg.sender];
+        (bool success, ) = msg.sender.call{value: amount}("");  // External call before state update
+        require(success, "Transfer failed");
+        balances[msg.sender] = 0;  // State update after external call
+    }
+}
+
+// ✅ GOOD - Checks-Effects-Interactions pattern
+contract Secure {
+    mapping(address => uint256) public balances;
+    bool private locked;
+    
+    modifier nonReentrant() {
+        require(!locked, "Reentrant call");
+        locked = true;
+        _;
+        locked = false;
+    }
+    
+    function withdraw() external nonReentrant {
+        uint256 amount = balances[msg.sender];  // CHECK
+        require(amount > 0, "No balance");
+        
+        balances[msg.sender] = 0;  // EFFECTS (state update first)
+        
+        (bool success, ) = msg.sender.call{value: amount}("");  // INTERACTIONS (external call last)
+        require(success, "Transfer failed");
+    }
+}
+
+// ✅ GOOD - Using OpenZeppelin ReentrancyGuard
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+
+contract SecureWithGuard is ReentrancyGuard {
+    mapping(address => uint256) public balances;
+    
+    function withdraw() external nonReentrant {
+        uint256 amount = balances[msg.sender];
+        require(amount > 0, "No balance");
+        
+        balances[msg.sender] = 0;  // Effects
+        
+        (bool success, ) = msg.sender.call{value: amount}("");  // Interactions
+        require(success, "Transfer failed");
+    }
+}
+```
+
+### 2. Access Control
+
+**The Problem:** Functions can be called by unauthorized users.
+
+**The Solution:** Implement proper access control.
+
+```solidity
+// ❌ BAD - No access control
+contract Vulnerable {
+    address public admin;
+    
+    function setAdmin(address newAdmin) external {
+        admin = newAdmin;  // Anyone can call this!
+    }
+}
+
+// ✅ GOOD - Using Ownable
+import "@openzeppelin/contracts/access/Ownable.sol";
+
+contract Secure is Ownable {
+    function setAdmin(address newAdmin) external onlyOwner {
+        // Only owner can call
+    }
+}
+
+// ✅ GOOD - Custom access control
+contract SecureCustom {
+    address public owner;
+    mapping(address => bool) public authorized;
+    
+    modifier onlyOwner() {
+        require(msg.sender == owner, "Not owner");
+        _;
+    }
+    
+    modifier onlyAuthorized() {
+        require(authorized[msg.sender], "Not authorized");
+        _;
+    }
+    
+    constructor() {
+        owner = msg.sender;
+    }
+    
+    function setAuthorized(address account, bool status) external onlyOwner {
+        authorized[account] = status;
+    }
+}
+```
+
+### 3. Integer Overflow/Underflow
+
+**The Problem:** Arithmetic operations can overflow/underflow (pre-0.8.0).
+
+**The Solution:** Use Solidity 0.8.0+ (automatic checks) or SafeMath.
+
+```solidity
+// ✅ GOOD - Solidity 0.8.0+ automatically checks overflow
+pragma solidity ^0.8.20;
+
+contract Secure {
+    function add(uint256 a, uint256 b) external pure returns (uint256) {
+        return a + b;  // Automatically reverts on overflow
+    }
+}
+
+// ✅ GOOD - For pre-0.8.0, use SafeMath
+import "@openzeppelin/contracts/utils/math/SafeMath.sol";
+
+contract SecureLegacy {
+    using SafeMath for uint256;
+    
+    function add(uint256 a, uint256 b) external pure returns (uint256) {
+        return a.add(b);  // SafeMath prevents overflow
+    }
+}
+
+// ✅ GOOD - Unchecked blocks when overflow is impossible
+function increment(uint256 x) external pure returns (uint256) {
+    unchecked {
+        return x + 1;  // Safe: x + 1 won't overflow in practice
+    }
+}
+```
+
+### 4. Front-Running
+
+**The Problem:** Transactions can be front-run by miners or bots.
+
+**The Solution:** Use commit-reveal schemes or access lists.
+
+```solidity
+// ✅ GOOD - Commit-reveal scheme
+contract SecureAuction {
+    mapping(address => bytes32) public commitments;
+    mapping(address => uint256) public revealedBids;
+    bool public biddingEnded;
+    
+    function commitBid(bytes32 commitment) external {
+        require(!biddingEnded, "Bidding ended");
+        commitments[msg.sender] = commitment;
+    }
+    
+    function revealBid(uint256 bid, bytes32 salt) external {
+        require(biddingEnded, "Bidding not ended");
+        require(
+            keccak256(abi.encodePacked(bid, salt, msg.sender)) == commitments[msg.sender],
+            "Invalid commitment"
+        );
+        revealedBids[msg.sender] = bid;
+    }
+}
+```
+
+### 5. Denial of Service (DoS)
+
+**The Problem:** Loops can consume all gas or fail if array grows too large.
+
+**The Solution:** Limit array sizes, use pagination, or avoid loops.
+
+```solidity
+// ❌ BAD - DoS vulnerability
+contract Vulnerable {
+    address[] public users;
+    
+    function distributeRewards() external {
+        for (uint256 i = 0; i < users.length; i++) {
+            // If users array is too large, this will fail
+            transferReward(users[i]);
+        }
+    }
+}
+
+// ✅ GOOD - Limit array size or use pagination
+contract Secure {
+    address[] public users;
+    uint256 public constant MAX_USERS = 100;
+    
+    function addUser(address user) external {
+        require(users.length < MAX_USERS, "Too many users");
+        users.push(user);
+    }
+    
+    function distributeRewards(uint256 startIndex, uint256 endIndex) external {
+        require(endIndex <= users.length, "Invalid range");
+        for (uint256 i = startIndex; i < endIndex; i++) {
+            transferReward(users[i]);
+        }
+    }
+}
+```
+
+### 6. Unchecked External Calls
+
+**The Problem:** External calls can fail silently or consume all gas.
+
+**The Solution:** Always check return values and use low-level calls carefully.
+
+```solidity
+// ❌ BAD - Unchecked external call
+contract Vulnerable {
+    function transferTokens(address token, address to, uint256 amount) external {
+        IERC20(token).transfer(to, amount);  // May fail silently
+    }
+}
+
+// ✅ GOOD - Check return value
+contract Secure {
+    function transferTokens(address token, address to, uint256 amount) external {
+        bool success = IERC20(token).transfer(to, amount);
+        require(success, "Transfer failed");
+    }
+}
+
+// ✅ GOOD - Low-level call with proper handling
+function sendEther(address payable recipient, uint256 amount) external {
+    (bool success, ) = recipient.call{value: amount}("");
+    require(success, "Ether transfer failed");
+}
+
+// ✅ GOOD - Using SafeERC20
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
+contract SecureWithSafeERC20 {
+    using SafeERC20 for IERC20;
+    
+    function transferTokens(address token, address to, uint256 amount) external {
+        IERC20(token).safeTransfer(to, amount);  // Reverts on failure
+    }
+}
+```
+
+### 7. Timestamp Dependence
+
+**The Problem:** Block timestamps can be manipulated by miners.
+
+**The Solution:** Avoid strict equality checks, use ranges.
+
+```solidity
+// ❌ BAD - Exact timestamp check
+contract Vulnerable {
+    function canWithdraw() external view returns (bool) {
+        return block.timestamp == 1000;  // Miners can manipulate
+    }
+}
+
+// ✅ GOOD - Range-based checks
+contract Secure {
+    uint256 public constant LOCK_DURATION = 30 days;
+    uint256 public lockTime;
+    
+    function canWithdraw() external view returns (bool) {
+        return block.timestamp >= lockTime + LOCK_DURATION;
+    }
+}
+```
+
+### 8. Random Number Generation
+
+**The Problem:** Block variables are predictable.
+
+**The Solution:** Use Chainlink VRF or commit-reveal schemes.
+
+```solidity
+// ❌ BAD - Predictable randomness
+contract Vulnerable {
+    function random() external view returns (uint256) {
+        return uint256(keccak256(abi.encodePacked(block.timestamp, block.difficulty)));
+    }
+}
+
+// ✅ GOOD - Using Chainlink VRF
+import "@chainlink/contracts/src/v0.8/VRFConsumerBase.sol";
+
+contract Secure is VRFConsumerBase {
+    bytes32 internal keyHash;
+    uint256 internal fee;
+    
+    function requestRandomness() external returns (bytes32 requestId) {
+        return requestRandomness(keyHash, fee);
+    }
+}
+```
+
+### 9. Gas Limit DoS
+
+**The Problem:** Loops can consume all gas.
+
+**The Solution:** Limit loop iterations, use pagination.
+
+```solidity
+// ❌ BAD - Unbounded loop
+contract Vulnerable {
+    function processAll() external {
+        for (uint256 i = 0; i < items.length; i++) {
+            processItem(items[i]);  // May consume all gas
+        }
+    }
+}
+
+// ✅ GOOD - Bounded processing
+contract Secure {
+    uint256 public constant MAX_BATCH_SIZE = 50;
+    
+    function processBatch(uint256 startIndex, uint256 endIndex) external {
+        require(endIndex - startIndex <= MAX_BATCH_SIZE, "Batch too large");
+        require(endIndex <= items.length, "Invalid range");
+        
+        for (uint256 i = startIndex; i < endIndex; i++) {
+            processItem(items[i]);
+        }
+    }
+}
+```
+
+### 10. Signature Replay Attacks
+
+**The Problem:** Signatures can be reused across chains or contracts.
+
+**The Solution:** Include chain ID and contract address in signature.
+
+```solidity
+// ✅ GOOD - Include chain ID and contract address
+contract Secure {
+    function verifySignature(
+        address signer,
+        bytes32 messageHash,
+        bytes memory signature,
+        uint256 nonce
+    ) external view returns (bool) {
+        bytes32 hash = keccak256(
+            abi.encodePacked(
+                "\x19\x01",
+                domainSeparator(),
+                keccak256(abi.encode(messageHash, nonce, address(this), block.chainid))
+            )
+        );
+        return recover(hash, signature) == signer;
+    }
+    
+    function domainSeparator() public view returns (bytes32) {
+        return keccak256(
+            abi.encode(
+                keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
+                keccak256("MyContract"),
+                keccak256("1"),
+                block.chainid,
+                address(this)
+            )
+        );
+    }
+}
+```
+
+## Security Best Practices
+
+### 1. Input Validation
+
+Always validate inputs:
+
+```solidity
+// ✅ GOOD - Validate all inputs
+function transfer(address to, uint256 amount) external {
+    require(to != address(0), "Invalid recipient");
+    require(amount > 0, "Amount must be positive");
+    require(balances[msg.sender] >= amount, "Insufficient balance");
+    
+    balances[msg.sender] -= amount;
+    balances[to] += amount;
+}
+```
+
+### 2. Use Safe Libraries
+
+Prefer battle-tested libraries:
+
+```solidity
+// ✅ GOOD - Use OpenZeppelin
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+```
+
+### 3. Minimize External Calls
+
+Reduce attack surface:
+
+```solidity
+// ✅ GOOD - Minimize external calls
+function batchTransfer(address[] calldata recipients, uint256[] calldata amounts) external {
+    require(recipients.length == amounts.length, "Arrays length mismatch");
+    
+    uint256 totalAmount = 0;
+    for (uint256 i = 0; i < amounts.length; i++) {
+        totalAmount += amounts[i];
+    }
+    
+    require(balances[msg.sender] >= totalAmount, "Insufficient balance");
+    balances[msg.sender] -= totalAmount;
+    
+    for (uint256 i = 0; i < recipients.length; i++) {
+        balances[recipients[i]] += amounts[i];
+    }
+}
+```
+
+### 4. Events for Important Actions
+
+Emit events for all important state changes:
+
+```solidity
+// ✅ GOOD - Emit events
+event Transfer(address indexed from, address indexed to, uint256 value);
+
+function transfer(address to, uint256 amount) external {
+    // ... transfer logic ...
+    emit Transfer(msg.sender, to, amount);
+}
+```
+
+### 5. Use Custom Errors
+
+Gas-efficient error handling:
+
+```solidity
+// ✅ GOOD - Custom errors
+error InsufficientBalance(uint256 required, uint256 available);
+error InvalidAddress(address provided);
+
+function withdraw(uint256 amount) external {
+    if (balances[msg.sender] < amount) {
+        revert InsufficientBalance(amount, balances[msg.sender]);
+    }
+    // ...
+}
+```
+
+## Security Checklist
+
+Before deploying, verify:
+
+- [ ] All external calls use Checks-Effects-Interactions pattern
+- [ ] ReentrancyGuard used where needed
+- [ ] Access control implemented correctly
+- [ ] Input validation on all user inputs
+- [ ] Integer overflow/underflow handled (or using 0.8.0+)
+- [ ] Unbounded loops avoided or limited
+- [ ] Timestamp dependence minimized
+- [ ] Random number generation secure
+- [ ] Events emitted for important actions
+- [ ] Custom errors used instead of require strings
+- [ ] External dependencies audited
+- [ ] Code reviewed by multiple developers
+- [ ] Tests cover edge cases and attack vectors
+- [ ] Gas limits considered
+- [ ] Upgradeability patterns secure (if applicable)
+
+## Remember
+
+- **Security First** - Never compromise security for gas or convenience
+- **Test Thoroughly** - Test all attack vectors
+- **Use Audited Libraries** - Prefer OpenZeppelin and other audited code
+- **Code Review** - Always have code reviewed
+- **Stay Updated** - Keep dependencies updated
+- **Audit Before Mainnet** - Professional audit for production contracts
