@@ -39,6 +39,22 @@ const STACKS = [
     summary: "Full-stack web development with Next.js",
     focus: "React patterns, accessibility, performance",
   },
+  {
+    id: "python",
+    name: "Python",
+    directory: "Python",
+    icon: "🐍",
+    summary: "General Python development",
+    focus: "Type safety, readability, best practices",
+  },
+  {
+    id: "typescript",
+    name: "TypeScript",
+    directory: "Typescript",
+    icon: "📘",
+    summary: "Type-safe JavaScript development",
+    focus: "Type safety, code quality, best practices",
+  },
 ];
 
 const parseFrontmatter = (content) => {
