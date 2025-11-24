@@ -9,13 +9,17 @@ Cursor rules are markdown files (`.mdc` format) that provide context and guideli
 ## Overview of Rules
 
 ### 📋 Core Framework & Language (`core-framework-&-language.mdc`)
+
 Defines the foundational technology stack:
+
 - **Framework:** Next.js (Pages Router)
 - **Language:** TypeScript
 - **Runtime:** Node.js
 
 ### 🎨 Frontend (`frontend.mdc`)
+
 Frontend technology stack and libraries:
+
 - **UI Library:** Chakra UI
 - **Styling:** CSS Modules, Chakra UI style props, Emotion
 - **State Management:** Zustand
@@ -25,21 +29,27 @@ Frontend technology stack and libraries:
 - **Calendar:** React Calendar
 
 ### 🔧 Backend (`backend.mdc`)
+
 Backend architecture and services:
+
 - **API Routes:** Next.js API Routes (`src/pages/api/`)
 - **Backend as a Service:** Supabase (Auth, Database, Storage)
 - **API Validation:** Yup schemas
 - **API Authentication:** Custom HOFs (`withAuthentication`, `withApiKeyAuth`, etc.)
 
 ### 🏗️ Key Architectural Patterns (`key-architecture-patterns.mdc`)
+
 Core architectural patterns used in the codebase:
+
 - **Service Layer:** Business logic in `src/services/`
 - **Utility Functions:** Reusable functions in `src/utils/`
 - **Modular Components:** Feature-specific components in `src/components/modules/`
 - **Registry Pattern:** Dynamic component/executor management
 
 ### 💬 Commenting Guidelines (`commenting-guidelines.mdc`)
+
 Comprehensive JSDoc commenting standards:
+
 - **Format:** JSDoc (`/** ... */`) for multi-line comments
 - **Focus:** Explain the "why" and "intent", not the "what" (types handle that)
 - **When to Comment:** Public APIs, complex logic, non-obvious decisions, workarounds
@@ -47,9 +57,11 @@ Comprehensive JSDoc commenting standards:
 - **What NOT to Comment:** Obvious code, type duplication, version control info, commented-out code
 
 ### 📝 Logging Guidelines (`logging-guidelines.mdc`)
+
 **⚠️ IMPORTANT: Only add logs when asked for. By default, do NOT add logs.**
 
 Comprehensive logging standards:
+
 - **Server-Side:** Use `getServerLogger(moduleName)` for API routes, server components, middleware
 - **Client-Side:** Use `getClientLogger(componentName)` for client components, hooks, event handlers
 - **Log Levels:** `error`, `warn`, `info`, `http`, `debug`
@@ -57,7 +69,9 @@ Comprehensive logging standards:
 - **Performance:** Client-side logging should be minimal; only `error` logs are sent to server by default
 
 ### 🎯 Styling Guidelines (`styling-guidelines.mdc`)
+
 Comprehensive code style guide covering 30+ categories:
+
 - **Types & References:** Use `const`/`let`, avoid `var`
 - **Objects & Arrays:** Literal syntax, spread operators, method shorthand
 - **Functions:** Named expressions, arrow functions, default parameters
@@ -68,18 +82,23 @@ Comprehensive code style guide covering 30+ categories:
 - **Testing:** Write tests, aim for 100% coverage
 
 ### ✅ No Hiding (`no-hiding.mdc`)
+
 **Critical Rule:** Never hide lint errors. All lint errors must be fully resolved.
 
 ### 🧪 Testing (`testing.mdc`)
+
 Comprehensive testing philosophy focusing on logic and behavior:
+
 - **Service Layer Testing:** 100% coverage required for business logic
-- **HOF Testing:** Authentication and middleware must be bulletproof  
+- **HOF Testing:** Authentication and middleware must be bulletproof
 - **No UI Tests:** Frontend tested manually, backend tested automatically
 - **Test Organization:** Tests live alongside code in `__tests__` directories
 - **Framework:** Jest with TypeScript support
 
 ### 🚨 Error Handling Patterns (`error-handling-patterns.mdc`)
+
 Comprehensive error management strategies:
+
 - **Custom Error Classes:** Domain-specific errors with proper status codes
 - **API Error Handling:** Consistent error responses with security in mind
 - **React Error Boundaries:** Graceful UI error recovery
@@ -87,7 +106,9 @@ Comprehensive error management strategies:
 - **Monitoring:** Structured logging with context
 
 ### ⚡ Performance Guidelines (`performance-guidelines.mdc`)
+
 React and Next.js optimization techniques:
+
 - **React Patterns:** memo, useMemo, useCallback best practices
 - **State Optimization:** Selective Zustand subscriptions
 - **List Virtualization:** Handling large datasets efficiently
@@ -96,7 +117,9 @@ React and Next.js optimization techniques:
 - **Data Fetching:** SWR patterns and optimistic updates
 
 ### 🗄️ State Management Patterns (`state-management-patterns.mdc`)
+
 Zustand best practices and patterns:
+
 - **Store Organization:** Single responsibility, focused stores
 - **Performance:** Selective subscriptions and computed selectors
 - **TypeScript:** Fully typed stores with predictable state
@@ -104,21 +127,27 @@ Zustand best practices and patterns:
 - **Testing:** Store testing strategies
 
 ### 🔀 Git Workflow (`git-workflow.mdc`)
+
 Version control and commit message standards:
+
 - **Commit Format:** Conventional Commits specification
 - **Branch Naming:** Consistent naming conventions
 - **Pull Requests:** PR guidelines and templates
 - **Workflow:** Feature branch workflow and conflict resolution
 
 ### 👀 Code Review (`code-review.mdc`)
+
 Code review checklist and best practices:
+
 - **Review Checklist:** Functionality, quality, architecture, security
 - **Review Process:** Guidelines for authors and reviewers
 - **Feedback:** How to provide constructive feedback
 - **Conflict Resolution:** Handling disagreements during review
 
 ### ♿ Accessibility Guidelines (`accessibility-guidelines.mdc`)
+
 Accessibility (a11y) standards for inclusive design:
+
 - **WCAG Compliance:** Level AA target
 - **Semantic HTML:** Proper element usage
 - **ARIA Attributes:** When and how to use ARIA
@@ -126,7 +155,9 @@ Accessibility (a11y) standards for inclusive design:
 - **Testing:** Manual and automated a11y testing
 
 ### ⚖️ Conflict Resolution (`conflict-resolution.mdc`)
+
 Guidance for resolving rule conflicts:
+
 - **Priority Hierarchy:** Rule precedence order
 - **Common Scenarios:** How to handle specific conflicts
 - **Decision Process:** Step-by-step conflict resolution
@@ -166,20 +197,27 @@ vibe-coding-rules/
     ├── performance-guidelines.mdc
     ├── state-management-patterns.mdc
     ├── styling-guidelines.mdc
+    ├── typescript-code-style-guide.mdc
     └── testing.mdc
 ```
 
 ## Quick Reference
 
 ### When Writing Code
+
 - ✅ Follow styling guidelines (camelCase, 2-space indentation, semicolons, etc.)
 - ✅ **NEVER abbreviate variables** - Always use full, descriptive names
+- ✅ Use TypeScript's type system fully - never use `any`, prefer `unknown` and narrow
+- ✅ Provide explicit return types for exported functions
 - ✅ Use JSDoc comments for public APIs and complex logic
 - ✅ Never hide lint errors - fix them completely
 - ✅ Use appropriate logging (only when requested)
 - ✅ Follow architectural patterns (Service Layer, Registry Pattern, etc.)
+- ✅ Use type guards for runtime type checking
+- ✅ Leverage discriminated unions for complex state management
 
 ### When Adding Features
+
 - ✅ Use Next.js API Routes for backend endpoints
 - ✅ Use Chakra UI for frontend components
 - ✅ Use Zustand for global state management
@@ -188,6 +226,7 @@ vibe-coding-rules/
 - ✅ Use Supabase for authentication and database
 
 ### When Testing
+
 - ✅ Write tests for service layer (100% coverage required)
 - ✅ Test HOFs and authentication separately
 - ✅ Manual testing for frontend, automated for backend
@@ -195,6 +234,7 @@ vibe-coding-rules/
 - ✅ Mock at the boundary, not internally
 
 ### When Handling Errors
+
 - ✅ Use custom error classes with proper status codes
 - ✅ Never expose sensitive information in errors
 - ✅ Implement error boundaries for React components
@@ -202,6 +242,7 @@ vibe-coding-rules/
 - ✅ Log errors with context for debugging
 
 ### When Optimizing Performance
+
 - ✅ Measure before optimizing
 - ✅ Use React.memo, useMemo, useCallback appropriately
 - ✅ Implement selective Zustand subscriptions
@@ -210,6 +251,7 @@ vibe-coding-rules/
 - ✅ Monitor bundle size
 
 ### When Managing State
+
 - ✅ Use Zustand for global application state
 - ✅ Keep local state for UI-only concerns
 - ✅ Create focused, single-responsibility stores
@@ -217,6 +259,7 @@ vibe-coding-rules/
 - ✅ Implement optimistic updates for better UX
 
 ### When Committing Code
+
 - ✅ Use Conventional Commits format
 - ✅ Write clear, descriptive commit messages
 - ✅ Make atomic commits (one logical change)
@@ -224,6 +267,7 @@ vibe-coding-rules/
 - ✅ Never commit secrets or sensitive data
 
 ### When Reviewing Code
+
 - ✅ Check functionality and edge cases
 - ✅ Verify adherence to all guidelines
 - ✅ Look for security issues
@@ -231,6 +275,7 @@ vibe-coding-rules/
 - ✅ Approve when standards are met
 
 ### When Building UI
+
 - ✅ Use semantic HTML elements
 - ✅ Ensure keyboard navigation works
 - ✅ Provide proper ARIA labels
@@ -240,6 +285,7 @@ vibe-coding-rules/
 ## Contributing
 
 When updating these rules:
+
 1. Keep guidelines clear and actionable
 2. Include examples where helpful
 3. Update this README if adding new rule files
@@ -253,4 +299,3 @@ When updating these rules:
 - The "no-hiding" rule is critical - all lint errors must be resolved, never suppressed
 - When rules conflict, refer to `conflict-resolution.mdc` for guidance
 - React Testing Library is available but only for testing hooks, not component rendering
-

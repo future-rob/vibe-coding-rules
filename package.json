@@ -1,0 +1,12 @@
+{
+  "name": "vibe-coding-rules",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:data": "node scripts/build-guides-data.mjs",
+    "build": "npm run build:data",
+    "serve": "node scripts/serve.mjs",
+    "dev": "npm run build && npm run serve"
+  }
+}

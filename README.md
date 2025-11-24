@@ -8,7 +8,7 @@ Cursor rules are markdown files (`.mdc` format) that provide context and guideli
 
 ## Supported Technology Stacks
 
-This repository contains coding rules for four major technology stacks:
+This repository contains coding rules for five major technology stacks:
 
 ### 🔌 [Arduino + PlatformIO](./Arduino%20+%20PlatformIO/)
 **Embedded Systems & Microcontroller Development**
@@ -39,6 +39,16 @@ This repository contains coding rules for four major technology stacks:
 - **Key Guidelines:** Security-first approach, custom errors, comprehensive testing, NatSpec documentation
 
 [📖 View Solidity + Foundry Rules →](./solidity%20+%20foundry/README.md)
+
+### 📘 [TypeScript](./Typescript/)
+**General TypeScript Development**
+
+- **Language:** TypeScript
+- **Focus:** Type safety, code quality, maintainability, best practices
+- **Key Guidelines:** Never use `any`, descriptive naming, explicit return types, type guards, discriminated unions
+- **Use Case:** Foundation for any TypeScript project, can be combined with framework-specific rules
+
+[📖 View TypeScript Rules →](./Typescript/README.md)
 
 ### ⚛️ [TypeScript-React + Nextjs](./Typescript-React%20+%20Nextjs/)
 **Full-Stack Web Development**
@@ -108,6 +118,9 @@ vibe-coding-rules/
 │   ├── code-review.mdc
 │   ├── conflict-resolution.mdc
 │   └── no-hiding.mdc
+├── Typescript/
+    ├── README.md
+    └── typescript-code-style-guide.mdc
 └── Typescript-React + Nextjs/
     ├── README.md
     ├── core-framework-&-language.mdc
@@ -127,6 +140,18 @@ vibe-coding-rules/
     ├── conflict-resolution.mdc
     └── no-hiding.mdc
 ```
+
+## 🌐 GitHub Pages Frontend
+
+**Browse the guidelines interactively:** [View on GitHub Pages](https://[your-username].github.io/vibe-coding-rules/)
+
+A professional web interface is available to browse all coding rules and guidelines. The frontend provides:
+- Interactive stack overview with statistics
+- Full guide browser with search capabilities
+- Markdown rendering for easy reading
+- Responsive design for all devices
+
+See [docs/README.md](./docs/README.md) for setup and development instructions.
 
 ## How to Use These Rules
 
@@ -214,6 +239,13 @@ While each technology stack has its own specific guidelines, there are several u
 - ✅ Emit events for all important state changes
 - ✅ Write comprehensive Foundry tests
 - ✅ Security-first approach - never compromise security for gas
+
+### 📘 TypeScript
+- ✅ Never use `any` - use `unknown` and narrow it
+- ✅ Always use descriptive, non-abbreviated variable names
+- ✅ Provide explicit return types for exported functions
+- ✅ Use type guards for runtime type checking
+- ✅ Leverage discriminated unions for complex state
 
 ### ⚛️ TypeScript-React + Nextjs
 - ✅ Use TypeScript strict mode

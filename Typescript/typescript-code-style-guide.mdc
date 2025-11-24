@@ -1,0 +1,699 @@
+---
+description: General TypeScript code style guide based on quality and style patterns from the codebase
+globs:
+  - "**/*.ts"
+  - "**/*.tsx"
+alwaysApply: true
+---
+
+# TypeScript Code Style Guide
+
+## Philosophy
+
+This guide establishes TypeScript coding standards that prioritize:
+1. **Type Safety** - Leverage TypeScript's type system fully
+2. **Maintainability** - Code should be clear and self-documenting
+3. **Consistency** - Uniform patterns across the codebase
+4. **Quality** - No shortcuts, no suppressed errors, no technical debt
+5. **Developer Experience** - Code that's pleasant to read and work with
+
+## Core Principles
+
+### 1. Type Safety First
+
+TypeScript's primary value is type safety. Use it fully:
+
+```typescript
+// ❌ BAD - Losing type safety
+function processData(data: any): any {
+  return data.value;
+}
+
+// ✅ GOOD - Proper types
+function processData<T extends { value: unknown }>(data: T): T['value'] {
+  return data.value;
+}
+
+// ✅ BETTER - Explicit interface
+interface ProcessableData {
+  value: unknown;
+}
+
+function processData(data: ProcessableData): unknown {
+  return data.value;
+}
+```
+
+**Rules:**
+- Never use `any` - use `unknown` if type is truly unknown, then narrow it
+- Avoid `@ts-ignore` or `@ts-expect-error` - fix the root cause
+- Prefer explicit return types for public APIs
+- Use type guards for runtime type checking
+- Leverage discriminated unions for complex state
+
+### 2. Descriptive Naming
+
+**NEVER abbreviate variables.** Always use full, descriptive names.
+
+```typescript
+// ❌ BAD - Abbreviated and unclear
+const wf = workflows.filter((w) => w.status === 'active');
+const usr = users.find((u) => u.id === id);
+function calcTotal(items: Item[]) { }
+
+// ✅ GOOD - Clear and descriptive
+const activeWorkflows = workflows.filter((workflow) => workflow.status === 'active');
+const user = users.find((user) => user.id === userId);
+function calculateTotal(items: Item[]): number { }
+```
+
+**Naming Conventions:**
+- **Variables & Functions:** `camelCase` - `getUserProfile`, `isValid`, `hasPermission`
+- **Classes & Types:** `PascalCase` - `UserService`, `ValidationError`, `ApiResponse`
+- **Constants:** `UPPER_SNAKE_CASE` for exported constants, `camelCase` for local
+- **Interfaces:** `PascalCase` - often without `I` prefix (e.g., `User` not `IUser`)
+- **Type Parameters:** Single uppercase letter - `T`, `K`, `V`, `E` (or descriptive like `TData`)
+- **Private Members:** No prefix needed (TypeScript handles visibility)
+
+### 3. Type Definitions
+
+#### Interfaces vs Type Aliases
+
+```typescript
+// ✅ Use interfaces for object shapes that might be extended
+interface User {
+  id: string;
+  name: string;
+  email: string;
+}
+
+interface AdminUser extends User {
+  permissions: string[];
+}
+
+// ✅ Use type aliases for unions, intersections, and computed types
+type Status = 'pending' | 'active' | 'inactive';
+type UserWithStatus = User & { status: Status };
+type UserKeys = keyof User;
+```
+
+**Guidelines:**
+- Prefer `interface` for object shapes (better error messages, extensibility)
+- Use `type` for unions, intersections, and computed types
+- Use `type` for primitive aliases and tuple types
+
+#### Discriminated Unions
+
+```typescript
+// ✅ GOOD - Type-safe state management
+type AsyncState<T> =
+  | { status: 'idle' }
+  | { status: 'loading' }
+  | { status: 'success'; data: T }
+  | { status: 'error'; error: Error };
+
+function handleState<T>(state: AsyncState<T>) {
+  switch (state.status) {
+    case 'idle':
+      return 'Ready';
+    case 'loading':
+      return 'Loading...';
+    case 'success':
+      return `Data: ${state.data}`; // TypeScript knows data exists
+    case 'error':
+      return `Error: ${state.error.message}`; // TypeScript knows error exists
+  }
+}
+```
+
+### 4. Function Signatures
+
+```typescript
+// ✅ GOOD - Clear, typed, documented
+/**
+ * Calculates the total price of items with optional discount.
+ *
+ * @param items - Array of items with price property
+ * @param discountPercentage - Optional discount (0-100)
+ * @returns Total price after discount
+ * @throws {ValidationError} If discount is out of range
+ */
+function calculateTotal(
+  items: Item[],
+  discountPercentage: number = 0
+): number {
+  if (discountPercentage < 0 || discountPercentage > 100) {
+    throw new ValidationError('Discount must be between 0 and 100');
+  }
+
+  const subtotal = items.reduce((sum, item) => sum + item.price, 0);
+  return subtotal * (1 - discountPercentage / 100);
+}
+```
+
+**Best Practices:**
+- Always provide explicit return types for exported functions
+- Use default parameters instead of optional parameters when possible
+- Put required parameters first, optional/default parameters last
+- Use rest parameters (`...args`) instead of `arguments`
+- Document complex functions with JSDoc
+
+### 5. Generics
+
+```typescript
+// ✅ GOOD - Flexible and type-safe
+function identity<T>(value: T): T {
+  return value;
+}
+
+// ✅ GOOD - Constrained generics
+function getProperty<T, K extends keyof T>(obj: T, key: K): T[K] {
+  return obj[key];
+}
+
+// ✅ GOOD - Multiple type parameters with constraints
+function mergeObjects<T extends object, U extends object>(
+  obj1: T,
+  obj2: U
+): T & U {
+  return { ...obj1, ...obj2 };
+}
+
+// ✅ GOOD - Generic utility types
+type ApiResponse<T> = {
+  data: T;
+  status: number;
+  message: string;
+};
+
+async function fetchData<T>(): Promise<ApiResponse<T>> {
+  // Implementation
+}
+```
+
+### 6. Type Guards and Narrowing
+
+```typescript
+// ✅ GOOD - Type guard functions
+function isString(value: unknown): value is string {
+  return typeof value === 'string';
+}
+
+function isUser(obj: unknown): obj is User {
+  return (
+    typeof obj === 'object' &&
+    obj !== null &&
+    'id' in obj &&
+    'name' in obj &&
+    typeof (obj as User).id === 'string'
+  );
+}
+
+// ✅ GOOD - Usage with narrowing
+function processValue(value: unknown) {
+  if (isString(value)) {
+    // TypeScript knows value is string here
+    return value.toUpperCase();
+  }
+  
+  if (isUser(value)) {
+    // TypeScript knows value is User here
+    return value.name;
+  }
+  
+  throw new Error('Invalid value type');
+}
+```
+
+### 7. Optional Chaining and Nullish Coalescing
+
+```typescript
+// ❌ BAD - Verbose null checking
+const userName = user && user.profile && user.profile.name ? user.profile.name : 'Anonymous';
+
+// ✅ GOOD - Optional chaining and nullish coalescing
+const userName = user?.profile?.name ?? 'Anonymous';
+
+// ✅ GOOD - With function calls
+const result = data?.map((item) => processItem(item)) ?? [];
+
+// ✅ GOOD - With array access
+const firstItem = items?.[0];
+```
+
+### 8. Array and Object Patterns
+
+```typescript
+// ✅ GOOD - Array methods with proper typing
+const activeUsers: User[] = users.filter(
+  (user): user is User => user.status === 'active'
+);
+
+const userIds: string[] = users.map((user) => user.id);
+
+const totalPrice: number = items.reduce(
+  (sum, item) => sum + item.price,
+  0
+);
+
+// ✅ GOOD - Object destructuring with types
+function processUser({ id, name, email }: User): ProcessedUser {
+  return { id, name, email: email.toLowerCase() };
+}
+
+// ✅ GOOD - Array destructuring
+const [first, second, ...rest] = items;
+
+// ✅ GOOD - Rest parameters
+function sum(...numbers: number[]): number {
+  return numbers.reduce((sum, num) => sum + num, 0);
+}
+```
+
+### 9. Error Handling
+
+```typescript
+// ✅ GOOD - Custom error classes
+class ValidationError extends Error {
+  constructor(
+    message: string,
+    public field: string,
+    public code: string = 'VALIDATION_ERROR'
+  ) {
+    super(message);
+    this.name = 'ValidationError';
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
+
+// ✅ GOOD - Type-safe error handling
+function parseJson<T>(json: string): T {
+  try {
+    return JSON.parse(json) as T;
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      throw new ValidationError('Invalid JSON format', 'json', 'INVALID_JSON');
+    }
+    throw error;
+  }
+}
+
+// ✅ GOOD - Result type pattern
+type Result<T, E = Error> =
+  | { success: true; data: T }
+  | { success: false; error: E };
+
+function safeParse<T>(json: string): Result<T> {
+  try {
+    return { success: true, data: JSON.parse(json) as T };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error : new Error('Unknown error'),
+    };
+  }
+}
+```
+
+### 10. Async/Await Patterns
+
+```typescript
+// ✅ GOOD - Proper async typing
+async function fetchUser(userId: string): Promise<User> {
+  const response = await fetch(`/api/users/${userId}`);
+  
+  if (!response.ok) {
+    throw new Error(`Failed to fetch user: ${response.statusText}`);
+  }
+  
+  return response.json() as Promise<User>;
+}
+
+// ✅ GOOD - Parallel execution
+async function fetchUserData(userId: string): Promise<UserData> {
+  const [user, posts, comments] = await Promise.all([
+    fetchUser(userId),
+    fetchUserPosts(userId),
+    fetchUserComments(userId),
+  ]);
+  
+  return { user, posts, comments };
+}
+
+// ✅ GOOD - Error handling in async
+async function safeFetchUser(userId: string): Promise<User | null> {
+  try {
+    return await fetchUser(userId);
+  } catch (error) {
+    console.error('Failed to fetch user:', error);
+    return null;
+  }
+}
+```
+
+### 11. Class Patterns
+
+```typescript
+// ✅ GOOD - Proper class structure
+class UserService {
+  private readonly apiUrl: string;
+
+  constructor(apiUrl: string = '/api') {
+    this.apiUrl = apiUrl;
+  }
+
+  async getUser(userId: string): Promise<User> {
+    const response = await fetch(`${this.apiUrl}/users/${userId}`);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch user: ${response.statusText}`);
+    }
+    return response.json() as Promise<User>;
+  }
+
+  async createUser(userData: CreateUserData): Promise<User> {
+    const response = await fetch(`${this.apiUrl}/users`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(userData),
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Failed to create user: ${response.statusText}`);
+    }
+    
+    return response.json() as Promise<User>;
+  }
+}
+
+// ✅ GOOD - Abstract classes for shared behavior
+abstract class BaseService {
+  protected abstract readonly resourceName: string;
+
+  protected async fetch<T>(endpoint: string): Promise<T> {
+    const response = await fetch(`/api/${this.resourceName}${endpoint}`);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch ${this.resourceName}`);
+    }
+    return response.json() as Promise<T>;
+  }
+}
+
+class PostService extends BaseService {
+  protected readonly resourceName = 'posts';
+
+  async getPost(id: string): Promise<Post> {
+    return this.fetch<Post>(`/${id}`);
+  }
+}
+```
+
+### 12. Utility Types
+
+```typescript
+// ✅ GOOD - Leverage built-in utility types
+type PartialUser = Partial<User>;
+type RequiredUser = Required<User>;
+type UserEmail = Pick<User, 'email'>;
+type UserWithoutId = Omit<User, 'id'>;
+type ReadonlyUser = Readonly<User>;
+
+// ✅ GOOD - Custom utility types
+type NonNullable<T> = T extends null | undefined ? never : T;
+type DeepReadonly<T> = {
+  readonly [P in keyof T]: T[P] extends object ? DeepReadonly<T[P]> : T[P];
+};
+
+// ✅ GOOD - Conditional types
+type NonEmptyArray<T> = [T, ...T[]];
+type ArrayElement<T> = T extends (infer U)[] ? U : never;
+```
+
+### 13. Module Organization
+
+```typescript
+// ✅ GOOD - Clear exports
+// utils/validation.ts
+export function isValidEmail(email: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+export function isValidPhone(phone: string): boolean {
+  return /^\d{10}$/.test(phone);
+}
+
+// ✅ GOOD - Re-exports for convenience
+// utils/index.ts
+export * from './validation';
+export * from './formatting';
+export { default as ApiClient } from './api';
+
+// ✅ GOOD - Default exports for single-purpose modules
+// services/UserService.ts
+class UserService {
+  // Implementation
+}
+
+export default UserService;
+```
+
+### 14. Type Assertions (Use Sparingly)
+
+```typescript
+// ❌ BAD - Unsafe type assertion
+const user = data as User; // What if data isn't actually a User?
+
+// ✅ GOOD - Type guard first
+function isUser(data: unknown): data is User {
+  return (
+    typeof data === 'object' &&
+    data !== null &&
+    'id' in data &&
+    'name' in data
+  );
+}
+
+if (isUser(data)) {
+  const user = data; // TypeScript knows it's User
+}
+
+// ✅ ACCEPTABLE - When you're certain (with comment explaining why)
+// This is safe because we validate the API response structure
+const user = apiResponse as User;
+```
+
+### 15. Enums and Const Assertions
+
+```typescript
+// ✅ GOOD - String enums (preferred)
+enum UserRole {
+  Admin = 'admin',
+  User = 'user',
+  Guest = 'guest',
+}
+
+// ✅ GOOD - Const assertions for literal types
+const STATUSES = ['pending', 'active', 'inactive'] as const;
+type Status = typeof STATUSES[number]; // 'pending' | 'active' | 'inactive'
+
+// ✅ GOOD - Object with const assertion
+const CONFIG = {
+  apiUrl: 'https://api.example.com',
+  timeout: 5000,
+  retries: 3,
+} as const;
+
+type Config = typeof CONFIG; // Readonly type
+```
+
+### 16. Comments and Documentation
+
+```typescript
+// ✅ GOOD - JSDoc for public APIs
+/**
+ * Validates user input and creates a new user account.
+ *
+ * @param userData - User registration data
+ * @param userData.email - Valid email address
+ * @param userData.password - Password (min 8 characters)
+ * @returns Promise resolving to the created user
+ * @throws {ValidationError} If input validation fails
+ * @throws {ConflictError} If email already exists
+ *
+ * @example
+ * ```typescript
+ * const user = await createUser({
+ *   email: 'user@example.com',
+ *   password: 'securePassword123'
+ * });
+ * ```
+ */
+async function createUser(userData: CreateUserData): Promise<User> {
+  // Implementation
+}
+
+// ✅ GOOD - Inline comments explain "why", not "what"
+// Using debounce to prevent excessive API calls during rapid typing
+const debouncedSearch = debounce(handleSearch, 300);
+
+// ❌ BAD - Comments that just repeat the code
+// Set isLoading to true
+setIsLoading(true);
+```
+
+### 17. Formatting and Style
+
+**Indentation:**
+- Use 2 spaces (never tabs)
+- Consistent indentation throughout
+
+**Semicolons:**
+- Always use semicolons to terminate statements
+
+**Quotes:**
+- Use single quotes for strings: `'hello'`
+- Use template literals for interpolation: `` `Hello, ${name}!` ``
+
+**Line Length:**
+- Maximum 100 characters per line (excluding long strings)
+- Break long lines appropriately
+
+**Spacing:**
+- One space before opening brace: `if (condition) {`
+- Spaces around operators: `const sum = a + b;`
+- No spaces inside parentheses: `if (condition)`
+- Trailing commas in multiline structures
+
+**Example:**
+```typescript
+// ✅ GOOD - Proper formatting
+function calculateTotal(
+  items: Item[],
+  discount: number = 0
+): number {
+  const subtotal = items.reduce(
+    (sum, item) => sum + item.price,
+    0
+  );
+  
+  return subtotal * (1 - discount / 100);
+}
+```
+
+### 18. Common Patterns to Avoid
+
+```typescript
+// ❌ BAD - Using 'any' to bypass type checking
+function process(data: any): any {
+  return data.value;
+}
+
+// ❌ BAD - Suppressing TypeScript errors
+// @ts-ignore
+const result = unsafeOperation();
+
+// ❌ BAD - Non-null assertions without checks
+const value = data!.property;
+
+// ❌ BAD - Type assertions without validation
+const user = apiResponse as User;
+
+// ❌ BAD - Abbreviated variable names
+const wf = workflows.filter((w) => w.active);
+
+// ❌ BAD - Missing return types
+function calculateTotal(items) {
+  return items.reduce((sum, item) => sum + item.price, 0);
+}
+
+// ❌ BAD - Mutating parameters
+function updateUser(user: User) {
+  user.name = 'New Name'; // Mutation!
+  return user;
+}
+```
+
+### 19. Testing Considerations
+
+```typescript
+// ✅ GOOD - Type-safe test utilities
+function createMockUser(overrides?: Partial<User>): User {
+  return {
+    id: '1',
+    name: 'Test User',
+    email: 'test@example.com',
+    ...overrides,
+  };
+}
+
+// ✅ GOOD - Typed test helpers
+function expectUser(user: unknown): asserts user is User {
+  if (!isUser(user)) {
+    throw new Error('Expected User type');
+  }
+}
+
+// ✅ GOOD - Type-safe mocks
+type MockApiClient = {
+  getUser: jest.MockedFunction<(id: string) => Promise<User>>;
+};
+
+const mockApiClient: MockApiClient = {
+  getUser: jest.fn(),
+};
+```
+
+### 20. Performance Considerations
+
+```typescript
+// ✅ GOOD - Memoization with proper types
+function memoize<Args extends unknown[], Return>(
+  fn: (...args: Args) => Return
+): (...args: Args) => Return {
+  const cache = new Map<string, Return>();
+  
+  return (...args: Args): Return => {
+    const key = JSON.stringify(args);
+    if (cache.has(key)) {
+      return cache.get(key)!;
+    }
+    const result = fn(...args);
+    cache.set(key, result);
+    return result;
+  };
+}
+
+// ✅ GOOD - Lazy initialization
+class ExpensiveService {
+  private _client: ApiClient | null = null;
+
+  get client(): ApiClient {
+    if (!this._client) {
+      this._client = new ApiClient();
+    }
+    return this._client;
+  }
+}
+```
+
+## Code Quality Checklist
+
+Before submitting code, ensure:
+
+- [ ] No `any` types (use `unknown` and narrow)
+- [ ] All exported functions have explicit return types
+- [ ] No suppressed lint errors (`@ts-ignore`, `eslint-disable`)
+- [ ] All variables use descriptive, non-abbreviated names
+- [ ] Complex logic is documented with JSDoc
+- [ ] Error handling is implemented properly
+- [ ] Type guards are used for runtime type checking
+- [ ] Code follows formatting guidelines
+- [ ] No mutations of function parameters
+- [ ] Proper use of `const`/`let` (prefer `const`)
+
+## Remember
+
+- **TypeScript is a tool for safety** - use it fully, don't bypass it
+- **Readability matters** - code is read more than written
+- **Consistency is key** - follow these patterns uniformly
+- **Fix, don't suppress** - every error is an opportunity to improve
+- **Document intent** - comments explain "why", types explain "what"

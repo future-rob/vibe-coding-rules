@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vibe Coding Rules - Comprehensive Development Guidelines</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500&display=swap"
+        rel="stylesheet">
+</head>
+
+<body>
+    <header class="header">
+        <div class="container">
+            <div class="header-content">
+                <h1 class="logo">Vibe Coding Rules</h1>
+                <p class="tagline">Comprehensive development guidelines development modern technology with AI</p>
+            </div>
+        </div>
+    </header>
+
+    <main class="main">
+        <div class="container">
+            <section class="intro">
+                <h2>What are Cursor Rules?</h2>
+                <p>Cursor rules are markdown files (`.mdc` format) that provide context and guidelines to AI coding
+                    assistants. They help ensure that AI-generated code follows your project's specific patterns,
+                    conventions, architectural decisions, and best practices for each technology stack.</p>
+            </section>
+
+            <section class="stacks" id="stacks">
+                <h2>Technology Stacks</h2>
+                <div class="stacks-grid" id="stacksGrid">
+                    <!-- Stacks will be loaded here -->
+                </div>
+            </section>
+
+            <section class="common-principles">
+                <h2>Common Principles</h2>
+                <div class="principles-grid">
+                    <div class="principle-card">
+                        <div class="principle-icon">✅</div>
+                        <h3>No Hiding</h3>
+                        <p>Never hide compiler warnings, linter errors, type checker warnings, or security issues. All
+                            must be resolved.</p>
+                    </div>
+                    <div class="principle-card">
+                        <div class="principle-icon">📝</div>
+                        <h3>Logging Guidelines</h3>
+                        <p><strong>⚠️ IMPORTANT:</strong> Only add logs when explicitly requested. By default, do NOT
+                            add logs unless asked.</p>
+                    </div>
+                    <div class="principle-card">
+                        <div class="principle-icon">💬</div>
+                        <h3>Commenting</h3>
+                        <p>Focus on explaining the <strong>"why"</strong> and <strong>"intent"</strong>, not just the
+                            <strong>"what"</strong>.
+                        </p>
+                    </div>
+                    <div class="principle-card">
+                        <div class="principle-icon">🎯</div>
+                        <h3>Code Style</h3>
+                        <p><strong>NEVER abbreviate variables</strong> - Always use full, descriptive names. Follow
+                            language-specific conventions.</p>
+                    </div>
+                    <div class="principle-card">
+                        <div class="principle-icon">🧪</div>
+                        <h3>Testing</h3>
+                        <p>Write comprehensive tests, aim for high coverage on critical paths, and test edge cases.</p>
+                    </div>
+                    <div class="principle-card">
+                        <div class="principle-icon">🔀</div>
+                        <h3>Git Workflow</h3>
+                        <p>Use Conventional Commits format, write clear commit messages, and never commit secrets.</p>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <!-- Guide Modal -->
+    <div class="modal" id="guideModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="modalTitle"></h2>
+                <button class="modal-close" id="modalClose">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="modalContent"></div>
+            </div>
+        </div>
+    </div>
+
+    <footer class="footer">
+        <div class="container">
+            <p>Vibe Coding Rules - Maintain consistency, quality, and best practices across all projects</p>
+        </div>
+    </footer>
+
+    <script src="app.js"></script>
+</body>
+
+</html>
