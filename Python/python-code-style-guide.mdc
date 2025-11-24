@@ -1,0 +1,1330 @@
+---
+description: Comprehensive Python code style guide based on PEP 8 and modern best practices
+globs:
+  - "**/*.py"
+alwaysApply: true
+---
+
+# Python Code Style Guide
+
+## Philosophy
+
+This guide establishes Python coding standards that prioritize:
+1. **Readability** - Python's core philosophy is that code is read more than written
+2. **Type Safety** - Leverage type hints fully for clarity and tooling support
+3. **Explicitness** - Explicit is better than implicit (PEP 20)
+4. **Consistency** - Uniform patterns across the codebase
+5. **Quality** - No shortcuts, no suppressed errors, no technical debt
+
+## Core Principles
+
+### 1. The Zen of Python
+
+Always remember the guiding principles from PEP 20:
+
+```python
+# Key principles to internalize:
+# - Beautiful is better than ugly
+# - Explicit is better than implicit
+# - Simple is better than complex
+# - Readability counts
+# - Errors should never pass silently
+# - In the face of ambiguity, refuse the temptation to guess
+```
+
+### 2. Descriptive Naming
+
+**NEVER abbreviate variables.** Always use full, descriptive names.
+
+```python
+# ❌ BAD - Abbreviated and unclear
+wfs = workflows.filter(lambda w: w.status == "active")
+usr = users.find(lambda u: u.id == uid)
+def calc_tot(items): pass
+
+# ✅ GOOD - Clear and descriptive
+active_workflows = [workflow for workflow in workflows if workflow.status == "active"]
+user = next((user for user in users if user.id == user_id), None)
+def calculate_total(items: list[Item]) -> float: pass
+
+# ❌ BAD - Single letter variables (except in specific contexts)
+for i in items:
+    process(i)
+    
+d = {}
+for k, v in data.items():
+    d[k] = v
+
+# ✅ GOOD - Descriptive names
+for item in items:
+    process_item(item)
+
+result = {}
+for key, value in data.items():
+    result[key] = value
+
+# ✅ ACCEPTABLE - Single letters in mathematical/conventional contexts
+for i in range(10):  # Loop index
+    matrix[i][i] = 1  # Diagonal
+
+for x, y in coordinates:  # Mathematical convention
+    plot_point(x, y)
+```
+
+**Naming Conventions:**
+- **Variables & Functions:** `snake_case` - `get_user_profile`, `is_valid`, `has_permission`
+- **Classes:** `PascalCase` - `UserService`, `ValidationError`, `ApiResponse`
+- **Constants:** `UPPER_SNAKE_CASE` - `MAX_RETRIES`, `DEFAULT_TIMEOUT`, `API_BASE_URL`
+- **Private Members:** Leading underscore - `_internal_method`, `_cache`
+- **"Magic" Methods:** Double underscore - `__init__`, `__str__`, `__repr__`
+- **Type Variables:** `PascalCase` - `T`, `K`, `V`, or descriptive like `ItemType`
+
+### 3. Type Hints
+
+All functions MUST have type hints. This is non-negotiable.
+
+```python
+# ❌ BAD - No type hints
+def process_user(user_data):
+    return user_data
+
+def get_items(ids):
+    return [fetch_item(id) for id in ids]
+
+# ✅ GOOD - Basic type hints
+def process_user(user_data: dict) -> dict:
+    return user_data
+
+def get_items(ids: list[int]) -> list[Item]:
+    return [fetch_item(item_id) for item_id in ids]
+
+# ✅ BETTER - Specific types with modern syntax (Python 3.10+)
+from typing import Optional
+
+def process_user(user_data: dict[str, Any]) -> dict[str, Any]:
+    return user_data
+
+def get_user(user_id: int) -> User | None:
+    """Get user by ID, returns None if not found."""
+    return users.get(user_id)
+
+# ✅ BEST - Using Pydantic or dataclasses for structured data
+from dataclasses import dataclass
+from pydantic import BaseModel
+
+@dataclass
+class UserData:
+    name: str
+    email: str
+    age: int | None = None
+
+def process_user(user_data: UserData) -> ProcessedUser:
+    return ProcessedUser.from_data(user_data)
+```
+
+#### Type Hint Best Practices
+
+```python
+from typing import (
+    Any,
+    Callable,
+    ClassVar,
+    Final,
+    Generic,
+    Literal,
+    Optional,
+    TypeAlias,
+    TypeVar,
+)
+from collections.abc import Iterable, Mapping, Sequence
+
+# Modern union syntax (Python 3.10+)
+def get_value(key: str) -> int | None:
+    pass
+
+# For Python 3.9, use Optional
+def get_value(key: str) -> Optional[int]:
+    pass
+
+# Generic types
+T = TypeVar("T")
+K = TypeVar("K")
+V = TypeVar("V")
+
+def first_or_none(items: Sequence[T]) -> T | None:
+    """Return first item or None if empty."""
+    return items[0] if items else None
+
+def get_or_default(mapping: Mapping[K, V], key: K, default: V) -> V:
+    """Get value from mapping or return default."""
+    return mapping.get(key, default)
+
+# Callable types
+Handler = Callable[[str, int], bool]
+
+def register_handler(handler: Handler) -> None:
+    """Register an event handler."""
+    pass
+
+# Type aliases
+UserId = int
+UserMap = dict[UserId, User]
+
+def get_users() -> UserMap:
+    pass
+
+# Literal types for specific values
+def set_log_level(level: Literal["debug", "info", "warning", "error"]) -> None:
+    pass
+
+# Final for constants
+MAX_RETRIES: Final = 3
+API_VERSION: Final[str] = "v1"
+
+# ClassVar for class-level attributes
+class Config:
+    DEFAULT_TIMEOUT: ClassVar[int] = 30
+```
+
+#### Forward References
+
+```python
+from __future__ import annotations
+
+class Node:
+    def __init__(self, value: int, next_node: Node | None = None) -> None:
+        self.value = value
+        self.next = next_node
+
+    def get_next(self) -> Node | None:
+        return self.next
+```
+
+### 4. Functions
+
+#### Function Definitions
+
+```python
+# ✅ GOOD - Type hints, docstring, single responsibility
+def calculate_total_price(
+    items: list[Item],
+    discount_percentage: float = 0.0,
+    include_tax: bool = True,
+) -> float:
+    """
+    Calculate the total price of items with optional discount and tax.
+
+    Args:
+        items: List of items to calculate price for
+        discount_percentage: Discount to apply (0-100)
+        include_tax: Whether to include tax in the calculation
+
+    Returns:
+        Total price after discount and optional tax
+
+    Raises:
+        ValueError: If discount_percentage is negative or greater than 100
+
+    Example:
+        >>> items = [Item(price=10.0), Item(price=20.0)]
+        >>> calculate_total_price(items, discount_percentage=10)
+        27.0
+    """
+    if discount_percentage < 0 or discount_percentage > 100:
+        raise ValueError("Discount must be between 0 and 100")
+
+    subtotal = sum(item.price for item in items)
+    discounted = subtotal * (1 - discount_percentage / 100)
+    
+    if include_tax:
+        return discounted * TAX_RATE
+    return discounted
+```
+
+#### Function Best Practices
+
+```python
+# ✅ GOOD - Single responsibility, pure functions where possible
+def validate_email(email: str) -> bool:
+    """Validate email format."""
+    import re
+    pattern = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
+    return bool(re.match(pattern, email))
+
+def normalize_email(email: str) -> str:
+    """Normalize email to lowercase."""
+    return email.strip().lower()
+
+def prepare_user_email(email: str) -> str:
+    """Validate and normalize user email."""
+    normalized = normalize_email(email)
+    if not validate_email(normalized):
+        raise ValueError(f"Invalid email format: {email}")
+    return normalized
+
+# ❌ BAD - Multiple responsibilities
+def process_user_email(email: str, db: Database) -> User:
+    # Validates
+    # Normalizes
+    # Checks database
+    # Creates user
+    # Sends email
+    pass
+
+# ✅ GOOD - Default arguments
+def fetch_data(
+    endpoint: str,
+    timeout: float = 30.0,
+    retries: int = 3,
+) -> dict[str, Any]:
+    """Fetch data from endpoint with configurable timeout and retries."""
+    pass
+
+# ✅ GOOD - *args and **kwargs with types
+def log_event(
+    event_type: str,
+    *args: str,
+    level: str = "info",
+    **metadata: Any,
+) -> None:
+    """Log an event with optional metadata."""
+    pass
+```
+
+#### Lambda Functions
+
+```python
+# ✅ GOOD - Simple lambdas for inline operations
+users_sorted_by_name = sorted(users, key=lambda user: user.name)
+active_users = list(filter(lambda user: user.is_active, users))
+
+# ❌ BAD - Complex lambdas (use regular functions instead)
+process = lambda x: x.value * 2 if x.is_valid and x.status == "active" else 0
+
+# ✅ GOOD - Regular function for complex logic
+def calculate_value(item: Item) -> float:
+    if item.is_valid and item.status == "active":
+        return item.value * 2
+    return 0
+
+processed = [calculate_value(item) for item in items]
+```
+
+### 5. Classes
+
+#### Class Definitions
+
+```python
+from dataclasses import dataclass, field
+from typing import ClassVar
+
+
+# ✅ GOOD - Well-structured class
+class UserService:
+    """Service for user-related operations."""
+
+    DEFAULT_PAGE_SIZE: ClassVar[int] = 20
+
+    def __init__(self, database: Database, cache: Cache) -> None:
+        """
+        Initialize UserService.
+
+        Args:
+            database: Database connection
+            cache: Cache instance for caching user data
+        """
+        self._database = database
+        self._cache = cache
+
+    async def get_user_by_id(self, user_id: int) -> User | None:
+        """Get user by ID, checking cache first."""
+        cached = await self._cache.get(f"user:{user_id}")
+        if cached:
+            return User.from_dict(cached)
+
+        user = await self._database.fetch_user(user_id)
+        if user:
+            await self._cache.set(f"user:{user_id}", user.to_dict())
+        return user
+
+    async def create_user(self, user_data: UserCreate) -> User:
+        """Create a new user."""
+        user = await self._database.create_user(user_data)
+        await self._cache.set(f"user:{user.id}", user.to_dict())
+        return user
+
+    def _validate_user_data(self, user_data: UserCreate) -> None:
+        """Validate user data (internal method)."""
+        if not user_data.email:
+            raise ValidationError("Email is required")
+
+
+# ✅ GOOD - Dataclass for data containers
+@dataclass
+class Point:
+    """A 2D point."""
+
+    x: float
+    y: float
+
+    def distance_from_origin(self) -> float:
+        """Calculate distance from origin."""
+        return (self.x**2 + self.y**2) ** 0.5
+
+
+# ✅ GOOD - Dataclass with defaults and factory
+@dataclass
+class UserConfig:
+    """User configuration settings."""
+
+    username: str
+    email: str
+    preferences: dict[str, Any] = field(default_factory=dict)
+    max_items: int = 100
+    is_premium: bool = False
+
+
+# ✅ GOOD - Frozen dataclass for immutable data
+@dataclass(frozen=True)
+class ApiResponse:
+    """Immutable API response."""
+
+    status_code: int
+    body: str
+    headers: tuple[tuple[str, str], ...] = ()
+```
+
+#### Inheritance and Composition
+
+```python
+from abc import ABC, abstractmethod
+
+
+# ✅ GOOD - Abstract base class
+class Repository(ABC):
+    """Abstract base repository."""
+
+    @abstractmethod
+    async def get_by_id(self, entity_id: int) -> Entity | None:
+        """Get entity by ID."""
+        pass
+
+    @abstractmethod
+    async def create(self, entity: Entity) -> Entity:
+        """Create new entity."""
+        pass
+
+    @abstractmethod
+    async def update(self, entity: Entity) -> Entity:
+        """Update existing entity."""
+        pass
+
+
+class UserRepository(Repository):
+    """User repository implementation."""
+
+    def __init__(self, database: Database) -> None:
+        self._database = database
+
+    async def get_by_id(self, entity_id: int) -> User | None:
+        return await self._database.fetch_user(entity_id)
+
+    async def create(self, entity: User) -> User:
+        return await self._database.create_user(entity)
+
+    async def update(self, entity: User) -> User:
+        return await self._database.update_user(entity)
+
+
+# ✅ GOOD - Prefer composition over inheritance
+class UserService:
+    """User service using composition."""
+
+    def __init__(
+        self,
+        repository: UserRepository,
+        validator: UserValidator,
+        notifier: Notifier,
+    ) -> None:
+        self._repository = repository
+        self._validator = validator
+        self._notifier = notifier
+
+    async def create_user(self, user_data: UserCreate) -> User:
+        """Create user with validation and notification."""
+        self._validator.validate(user_data)
+        user = await self._repository.create(User.from_create_data(user_data))
+        await self._notifier.notify_user_created(user)
+        return user
+```
+
+#### Properties and Descriptors
+
+```python
+class Temperature:
+    """Temperature with Celsius and Fahrenheit conversion."""
+
+    def __init__(self, celsius: float = 0.0) -> None:
+        self._celsius = celsius
+
+    @property
+    def celsius(self) -> float:
+        """Get temperature in Celsius."""
+        return self._celsius
+
+    @celsius.setter
+    def celsius(self, value: float) -> None:
+        """Set temperature in Celsius."""
+        if value < -273.15:
+            raise ValueError("Temperature cannot be below absolute zero")
+        self._celsius = value
+
+    @property
+    def fahrenheit(self) -> float:
+        """Get temperature in Fahrenheit."""
+        return self._celsius * 9 / 5 + 32
+
+    @fahrenheit.setter
+    def fahrenheit(self, value: float) -> None:
+        """Set temperature in Fahrenheit."""
+        self.celsius = (value - 32) * 5 / 9
+```
+
+### 6. Error Handling
+
+```python
+# ✅ GOOD - Custom exception hierarchy
+class ApplicationError(Exception):
+    """Base exception for application errors."""
+
+    def __init__(self, message: str, code: str | None = None) -> None:
+        self.message = message
+        self.code = code or self.__class__.__name__
+        super().__init__(self.message)
+
+
+class ValidationError(ApplicationError):
+    """Validation error."""
+
+    def __init__(self, message: str, field: str | None = None) -> None:
+        super().__init__(message, code="VALIDATION_ERROR")
+        self.field = field
+
+
+class NotFoundError(ApplicationError):
+    """Resource not found error."""
+
+    def __init__(self, resource: str, identifier: Any = None) -> None:
+        message = f"{resource} not found"
+        if identifier:
+            message = f"{resource} with id '{identifier}' not found"
+        super().__init__(message, code="NOT_FOUND")
+        self.resource = resource
+        self.identifier = identifier
+
+
+class AuthenticationError(ApplicationError):
+    """Authentication error."""
+
+    def __init__(self, message: str = "Authentication failed") -> None:
+        super().__init__(message, code="AUTHENTICATION_ERROR")
+
+
+# ✅ GOOD - Specific exception handling
+def get_user_by_id(user_id: int) -> User:
+    """Get user by ID."""
+    try:
+        user = database.fetch_user(user_id)
+    except DatabaseConnectionError as error:
+        logger.error("Database connection failed", exc_info=True)
+        raise ApplicationError("Service temporarily unavailable") from error
+    except DatabaseQueryError as error:
+        logger.error("Query failed", exc_info=True)
+        raise ApplicationError("Failed to fetch user") from error
+
+    if user is None:
+        raise NotFoundError("User", user_id)
+
+    return user
+
+
+# ❌ BAD - Bare except
+try:
+    risky_operation()
+except:  # Catches everything including KeyboardInterrupt!
+    pass
+
+# ❌ BAD - Too broad exception
+try:
+    risky_operation()
+except Exception:
+    pass  # Silently ignoring all errors
+
+# ✅ GOOD - Specific exceptions with logging
+try:
+    result = risky_operation()
+except ValueError as error:
+    logger.warning("Invalid value provided: %s", error)
+    raise ValidationError(str(error)) from error
+except IOError as error:
+    logger.error("IO operation failed", exc_info=True)
+    raise
+
+# ✅ GOOD - Using else and finally
+try:
+    file = open(filepath)
+except FileNotFoundError:
+    logger.warning("File not found: %s", filepath)
+    return None
+else:
+    # Only runs if no exception
+    content = file.read()
+finally:
+    # Always runs
+    file.close()
+```
+
+### 7. Context Managers
+
+```python
+from contextlib import contextmanager, asynccontextmanager
+from typing import Generator, AsyncGenerator
+
+
+# ✅ GOOD - Context manager for resource management
+@contextmanager
+def database_transaction(database: Database) -> Generator[Transaction, None, None]:
+    """Context manager for database transactions."""
+    transaction = database.begin_transaction()
+    try:
+        yield transaction
+        transaction.commit()
+    except Exception:
+        transaction.rollback()
+        raise
+
+
+# Usage
+with database_transaction(db) as transaction:
+    transaction.execute("INSERT INTO users VALUES (?)", [user_data])
+    transaction.execute("INSERT INTO audit_log VALUES (?)", [audit_data])
+
+
+# ✅ GOOD - Async context manager
+@asynccontextmanager
+async def async_database_session(pool: ConnectionPool) -> AsyncGenerator[Session, None]:
+    """Async context manager for database sessions."""
+    session = await pool.acquire()
+    try:
+        yield session
+    finally:
+        await pool.release(session)
+
+
+# ✅ GOOD - Class-based context manager
+class Timer:
+    """Context manager for timing code blocks."""
+
+    def __init__(self, name: str = "Operation") -> None:
+        self.name = name
+        self.start_time: float = 0
+        self.end_time: float = 0
+
+    def __enter__(self) -> "Timer":
+        self.start_time = time.perf_counter()
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> bool:
+        self.end_time = time.perf_counter()
+        elapsed = self.end_time - self.start_time
+        logger.info("%s took %.4f seconds", self.name, elapsed)
+        return False  # Don't suppress exceptions
+
+
+# Usage
+with Timer("Data processing"):
+    process_large_dataset(data)
+```
+
+### 8. Async/Await
+
+```python
+import asyncio
+from typing import Any
+
+
+# ✅ GOOD - Proper async function
+async def fetch_user_data(user_id: int) -> dict[str, Any]:
+    """Fetch user data asynchronously."""
+    async with aiohttp.ClientSession() as session:
+        async with session.get(f"{API_URL}/users/{user_id}") as response:
+            response.raise_for_status()
+            return await response.json()
+
+
+# ✅ GOOD - Parallel execution
+async def fetch_user_with_posts(user_id: int) -> tuple[User, list[Post]]:
+    """Fetch user and their posts in parallel."""
+    user_task = asyncio.create_task(fetch_user(user_id))
+    posts_task = asyncio.create_task(fetch_user_posts(user_id))
+
+    user, posts = await asyncio.gather(user_task, posts_task)
+    return user, posts
+
+
+# ✅ GOOD - Batch processing with semaphore
+async def fetch_all_users(user_ids: list[int], max_concurrent: int = 10) -> list[User]:
+    """Fetch multiple users with concurrency limit."""
+    semaphore = asyncio.Semaphore(max_concurrent)
+
+    async def fetch_with_limit(user_id: int) -> User:
+        async with semaphore:
+            return await fetch_user(user_id)
+
+    tasks = [fetch_with_limit(user_id) for user_id in user_ids]
+    return await asyncio.gather(*tasks)
+
+
+# ✅ GOOD - Timeout handling
+async def fetch_with_timeout(url: str, timeout: float = 30.0) -> dict[str, Any]:
+    """Fetch data with timeout."""
+    try:
+        async with asyncio.timeout(timeout):
+            return await fetch_data(url)
+    except asyncio.TimeoutError:
+        logger.warning("Request to %s timed out after %.1fs", url, timeout)
+        raise
+
+
+# ❌ BAD - Blocking I/O in async function
+async def bad_read_file(filepath: str) -> str:
+    # This blocks the event loop!
+    with open(filepath) as file:
+        return file.read()
+
+# ✅ GOOD - Use async file I/O
+async def read_file_async(filepath: str) -> str:
+    """Read file asynchronously."""
+    async with aiofiles.open(filepath) as file:
+        return await file.read()
+
+
+# ✅ GOOD - Run blocking code in thread pool
+async def run_blocking_operation(data: bytes) -> str:
+    """Run CPU-bound operation in thread pool."""
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, process_data_sync, data)
+```
+
+### 9. Collections and Comprehensions
+
+```python
+# ✅ GOOD - List comprehensions
+squares = [number**2 for number in range(10)]
+even_squares = [number**2 for number in range(10) if number % 2 == 0]
+
+# ✅ GOOD - Dict comprehensions
+user_by_id = {user.id: user for user in users}
+name_lengths = {name: len(name) for name in names}
+
+# ✅ GOOD - Set comprehensions
+unique_domains = {email.split("@")[1] for email in emails}
+
+# ✅ GOOD - Generator expressions for large datasets
+total = sum(item.price for item in items)  # Memory efficient
+first_valid = next((item for item in items if item.is_valid), None)
+
+# ❌ BAD - Overly complex comprehensions
+result = [
+    process(item)
+    for item in data
+    if validate(item) and transform(item) and check(item) and filter(item)
+]
+
+# ✅ GOOD - Break complex logic into functions
+def should_process(item: Item) -> bool:
+    """Check if item should be processed."""
+    return (
+        item.is_valid
+        and item.status == "active"
+        and item.owner_id in allowed_owners
+    )
+
+result = [process(item) for item in data if should_process(item)]
+
+# ✅ GOOD - Multiline comprehensions for readability
+active_user_emails = [
+    user.email
+    for user in users
+    if user.is_active and user.email_verified
+]
+
+# ✅ GOOD - Using itertools for complex operations
+from itertools import groupby, chain, islice
+
+# Group items by category
+items_by_category = {
+    category: list(group)
+    for category, group in groupby(sorted(items, key=lambda x: x.category), key=lambda x: x.category)
+}
+
+# Chain multiple iterables
+all_items = list(chain(items_a, items_b, items_c))
+
+# Take first N items
+first_ten = list(islice(all_items, 10))
+```
+
+### 10. String Formatting
+
+```python
+name = "Alice"
+count = 42
+price = 19.99
+
+# ✅ GOOD - f-strings (preferred)
+message = f"Hello, {name}! You have {count} items."
+formatted_price = f"Total: ${price:.2f}"
+
+# ✅ GOOD - f-strings with expressions
+debug_info = f"User {user.id} has {len(user.items)} items"
+conditional = f"Status: {'active' if is_active else 'inactive'}"
+
+# ✅ GOOD - Multiline f-strings
+report = (
+    f"User Report\n"
+    f"Name: {user.name}\n"
+    f"Email: {user.email}\n"
+    f"Items: {len(user.items)}\n"
+)
+
+# ✅ GOOD - Template strings for user input (security)
+from string import Template
+
+template = Template("Hello, $name!")
+message = template.safe_substitute(name=user_input)  # Safe from injection
+
+# ✅ ACCEPTABLE - .format() for reusable templates
+template = "User {name} has {count} items"
+message = template.format(name=name, count=count)
+
+# ❌ BAD - % formatting (legacy)
+message = "Hello, %s! You have %d items." % (name, count)
+
+# ❌ BAD - String concatenation in loops
+result = ""
+for item in items:
+    result += str(item) + ", "  # O(n²) time complexity
+
+# ✅ GOOD - Join for building strings
+result = ", ".join(str(item) for item in items)
+```
+
+### 11. Imports
+
+#### Import Order
+
+1. Standard library imports
+2. Third-party imports
+3. Local application imports
+
+```python
+# Standard library
+import os
+import sys
+from datetime import datetime
+from typing import Any, Optional
+
+# Third-party
+import requests
+from pydantic import BaseModel
+from sqlalchemy import Column, Integer, String
+
+# Local application
+from app.core.config import settings
+from app.models.user import User
+from app.services.user_service import UserService
+```
+
+#### Import Best Practices
+
+```python
+# ✅ GOOD - Absolute imports
+from app.services.user_service import UserService
+
+# ❌ BAD - Relative imports (avoid except in packages)
+from ..services.user_service import UserService
+
+# ✅ GOOD - Import specific items
+from typing import Optional, List, Dict
+
+# ❌ BAD - Wildcard imports (pollutes namespace)
+from typing import *
+from app.models import *
+
+# ✅ GOOD - Import what you need
+from app.models.user import User
+
+# ✅ ACCEPTABLE - Import module when many items needed
+from app import models
+# Then use: models.User, models.Post, etc.
+
+# ✅ GOOD - Alias for clarity
+from app.models.user import User as UserModel
+from app.schemas.user import User as UserSchema
+
+# ✅ GOOD - Type-only imports for circular dependencies
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.services.user_service import UserService
+```
+
+### 12. Docstrings
+
+Use Google-style docstrings for all public functions, classes, and modules.
+
+```python
+def fetch_user_data(
+    user_id: int,
+    include_posts: bool = False,
+    max_posts: int | None = None,
+) -> dict[str, Any]:
+    """
+    Fetch user data from the API.
+
+    Retrieves user information and optionally their recent posts.
+    Results are cached for 5 minutes.
+
+    Args:
+        user_id: The unique identifier of the user
+        include_posts: Whether to include user's posts in the response
+        max_posts: Maximum number of posts to include (None for all)
+
+    Returns:
+        Dictionary containing user data with the following keys:
+        - id: User ID
+        - name: User's full name
+        - email: User's email address
+        - posts: List of posts (if include_posts is True)
+
+    Raises:
+        NotFoundError: If user with given ID doesn't exist
+        AuthenticationError: If API authentication fails
+        RateLimitError: If API rate limit is exceeded
+
+    Example:
+        >>> user_data = fetch_user_data(123, include_posts=True, max_posts=10)
+        >>> print(user_data["name"])
+        "John Doe"
+        >>> len(user_data["posts"])
+        10
+    """
+    pass
+
+
+class UserRepository:
+    """
+    Repository for user data access.
+
+    Provides methods for CRUD operations on user entities.
+    Uses connection pooling for optimal performance.
+
+    Attributes:
+        database: Database connection instance
+        cache: Optional cache for read operations
+
+    Example:
+        >>> repo = UserRepository(database)
+        >>> user = await repo.get_by_id(123)
+        >>> print(user.name)
+        "John Doe"
+    """
+
+    def __init__(self, database: Database, cache: Cache | None = None) -> None:
+        """
+        Initialize UserRepository.
+
+        Args:
+            database: Database connection to use
+            cache: Optional cache instance for read-through caching
+        """
+        self.database = database
+        self.cache = cache
+```
+
+### 13. Formatting and Style
+
+**Indentation:**
+- Use 4 spaces (never tabs)
+- Consistent indentation throughout
+
+**Line Length:**
+- Maximum 100 characters (configurable, 88 for Black default)
+- Break long lines appropriately
+
+**Blank Lines:**
+- Two blank lines between top-level definitions
+- One blank line between methods in a class
+- No blank lines at start/end of functions
+
+**Quotes:**
+- Use double quotes for strings: `"hello"`
+- Use single quotes when string contains double quotes: `'He said "hello"'`
+- Use triple double quotes for docstrings: `"""Docstring"""`
+
+```python
+# ✅ GOOD - Proper formatting
+import os
+from typing import Optional
+
+
+MAX_RETRIES = 3
+
+
+class UserService:
+    """Service for user operations."""
+
+    def __init__(self, database: Database) -> None:
+        self.database = database
+
+    def get_user(self, user_id: int) -> Optional[User]:
+        """Get user by ID."""
+        return self.database.fetch_user(user_id)
+
+    def create_user(self, user_data: UserCreate) -> User:
+        """Create a new user."""
+        return self.database.create_user(user_data)
+
+
+def helper_function() -> None:
+    """A helper function."""
+    pass
+```
+
+### 14. Decorators
+
+```python
+from functools import wraps
+from typing import Callable, TypeVar, ParamSpec
+
+P = ParamSpec("P")
+R = TypeVar("R")
+
+
+# ✅ GOOD - Type-safe decorator
+def retry(max_attempts: int = 3, delay: float = 1.0) -> Callable[[Callable[P, R]], Callable[P, R]]:
+    """Retry decorator with configurable attempts and delay."""
+    def decorator(func: Callable[P, R]) -> Callable[P, R]:
+        @wraps(func)
+        def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+            last_exception: Exception | None = None
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as error:
+                    last_exception = error
+                    if attempt < max_attempts:
+                        time.sleep(delay)
+            raise last_exception
+        return wrapper
+    return decorator
+
+
+# Usage
+@retry(max_attempts=3, delay=0.5)
+def fetch_data(url: str) -> dict:
+    """Fetch data with automatic retry."""
+    pass
+
+
+# ✅ GOOD - Caching decorator
+from functools import lru_cache
+
+@lru_cache(maxsize=128)
+def expensive_computation(value: int) -> int:
+    """Cached expensive computation."""
+    return value ** 2
+
+
+# ✅ GOOD - Validation decorator
+def validate_positive(func: Callable[P, R]) -> Callable[P, R]:
+    """Ensure first argument is positive."""
+    @wraps(func)
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+        if args and args[0] <= 0:
+            raise ValueError("First argument must be positive")
+        return func(*args, **kwargs)
+    return wrapper
+
+
+@validate_positive
+def calculate_square_root(value: float) -> float:
+    """Calculate square root of positive number."""
+    return value ** 0.5
+```
+
+### 15. Testing Considerations
+
+```python
+# ✅ GOOD - Testable code with dependency injection
+class UserService:
+    """User service with injectable dependencies."""
+
+    def __init__(
+        self,
+        repository: UserRepository,
+        email_service: EmailService,
+    ) -> None:
+        self._repository = repository
+        self._email_service = email_service
+
+    async def create_user(self, user_data: UserCreate) -> User:
+        """Create user and send welcome email."""
+        user = await self._repository.create(user_data)
+        await self._email_service.send_welcome(user)
+        return user
+
+
+# ✅ GOOD - Factory functions for test fixtures
+def create_test_user(
+    user_id: int = 1,
+    name: str = "Test User",
+    email: str = "test@example.com",
+    is_active: bool = True,
+) -> User:
+    """Create a test user with customizable defaults."""
+    return User(
+        id=user_id,
+        name=name,
+        email=email,
+        is_active=is_active,
+    )
+
+
+# ✅ GOOD - Type-safe mock
+from unittest.mock import AsyncMock, MagicMock
+
+def create_mock_repository() -> MagicMock:
+    """Create mock repository for testing."""
+    mock = MagicMock(spec=UserRepository)
+    mock.get_by_id = AsyncMock(return_value=create_test_user())
+    mock.create = AsyncMock(side_effect=lambda data: create_test_user(**data.dict()))
+    return mock
+```
+
+### 16. Common Patterns to Avoid
+
+```python
+# ❌ BAD - Mutable default arguments
+def add_item(item: str, items: list = []) -> list:
+    items.append(item)
+    return items
+
+# ✅ GOOD - Use None as default
+def add_item(item: str, items: list | None = None) -> list:
+    if items is None:
+        items = []
+    items.append(item)
+    return items
+
+# ❌ BAD - Using type() for type checking
+if type(value) == str:
+    pass
+
+# ✅ GOOD - Use isinstance()
+if isinstance(value, str):
+    pass
+
+# ❌ BAD - Catching and ignoring exceptions
+try:
+    risky_operation()
+except Exception:
+    pass
+
+# ✅ GOOD - Handle exceptions properly
+try:
+    risky_operation()
+except SpecificError as error:
+    logger.error("Operation failed: %s", error)
+    raise ApplicationError("Operation failed") from error
+
+# ❌ BAD - Using bare `assert` for validation
+def set_age(age: int) -> None:
+    assert age >= 0, "Age must be non-negative"  # Can be disabled with -O
+
+# ✅ GOOD - Proper validation
+def set_age(age: int) -> None:
+    if age < 0:
+        raise ValueError("Age must be non-negative")
+
+# ❌ BAD - Global mutable state
+_users = []
+
+def add_user(user: User) -> None:
+    _users.append(user)
+
+# ✅ GOOD - Encapsulate state in classes
+class UserStore:
+    def __init__(self) -> None:
+        self._users: list[User] = []
+
+    def add_user(self, user: User) -> None:
+        self._users.append(user)
+
+# ❌ BAD - Checking for None/empty with ==
+if value == None:
+    pass
+if items == []:
+    pass
+
+# ✅ GOOD - Use is None and truthiness
+if value is None:
+    pass
+if not items:
+    pass
+```
+
+### 17. Performance Best Practices
+
+```python
+# ✅ GOOD - Use generators for large datasets
+def read_large_file(filepath: str) -> Generator[str, None, None]:
+    """Read large file line by line."""
+    with open(filepath) as file:
+        for line in file:
+            yield line.strip()
+
+# ✅ GOOD - Use set for membership testing
+allowed_ids = {1, 2, 3, 4, 5}  # O(1) lookup
+if user_id in allowed_ids:
+    pass
+
+# ❌ BAD - List for membership testing
+allowed_ids = [1, 2, 3, 4, 5]  # O(n) lookup
+if user_id in allowed_ids:
+    pass
+
+# ✅ GOOD - Use dict.get() with default
+value = data.get("key", default_value)
+
+# ❌ BAD - Check then access
+if "key" in data:
+    value = data["key"]
+else:
+    value = default_value
+
+# ✅ GOOD - Use collections.defaultdict
+from collections import defaultdict
+
+counts = defaultdict(int)
+for item in items:
+    counts[item.category] += 1
+
+# ✅ GOOD - Use slots for memory efficiency
+class Point:
+    __slots__ = ("x", "y")
+
+    def __init__(self, x: float, y: float) -> None:
+        self.x = x
+        self.y = y
+
+# ✅ GOOD - Cache expensive computations
+from functools import cache
+
+@cache
+def fibonacci(n: int) -> int:
+    """Calculate fibonacci number with caching."""
+    if n < 2:
+        return n
+    return fibonacci(n - 1) + fibonacci(n - 2)
+```
+
+## Code Quality Checklist
+
+Before submitting code, ensure:
+
+- [ ] All functions have type hints (parameters and return types)
+- [ ] All public functions have docstrings
+- [ ] No suppressed linter errors (`# type: ignore`, `# noqa` without reason)
+- [ ] All variables use descriptive, non-abbreviated names
+- [ ] Complex logic is documented with comments explaining "why"
+- [ ] Error handling is implemented properly (no bare except)
+- [ ] Code follows formatting guidelines (run Black, isort)
+- [ ] No mutations of function parameters
+- [ ] Proper use of async/await for I/O operations
+- [ ] Tests are written for new functionality
+
+## Pre-commit Configuration
+
+```yaml
+# .pre-commit-config.yaml
+repos:
+  - repo: https://github.com/psf/black
+    rev: 24.4.2
+    hooks:
+      - id: black
+
+  - repo: https://github.com/pycqa/isort
+    rev: 5.13.2
+    hooks:
+      - id: isort
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.4.4
+    hooks:
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.10.0
+    hooks:
+      - id: mypy
+        additional_dependencies: [types-all]
+```
+
+## pyproject.toml Configuration
+
+```toml
+[tool.black]
+line-length = 100
+target-version = ['py311']
+
+[tool.isort]
+profile = "black"
+line_length = 100
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "B",    # flake8-bugbear
+    "C4",   # flake8-comprehensions
+    "UP",   # pyupgrade
+]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_return_any = true
+warn_unused_ignores = true
+```
+
+## Remember
+
+- **Python is readable by design** - write code that reads like prose
+- **Explicit is better than implicit** - be clear about your intentions
+- **Type hints are documentation** - they help both humans and tools
+- **Errors should never pass silently** - always handle exceptions properly
+- **Consistency is key** - follow these patterns uniformly across the codebase
