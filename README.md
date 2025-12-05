@@ -1,5 +1,7 @@
 # Vibe Coding Rules
 
+![Cover](./cover.png)
+
 A comprehensive collection of Cursor AI coding rules and guidelines for multiple technology stacks. These rules help maintain consistency, code quality, security, and best practices across different types of projects when working with AI assistants in Cursor.
 
 ## What are Cursor Rules?

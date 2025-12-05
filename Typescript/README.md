@@ -14,6 +14,7 @@ A comprehensive TypeScript coding standards guide that establishes best practice
 
 **Core Principles:**
 - **Type Safety First** - Leverage TypeScript's type system fully, never use `any`
+- **Functional Over Classes** - Prefer functions, closures, and composition over classes and inheritance
 - **Descriptive Naming** - Never abbreviate variables, always use full descriptive names
 - **Maintainability** - Code should be clear and self-documenting
 - **Consistency** - Uniform patterns across the codebase
@@ -50,7 +51,7 @@ A comprehensive TypeScript coding standards guide that establishes best practice
    - Optional chaining and nullish coalescing
    - Error handling with custom error classes
    - Async/await patterns
-   - Class patterns and inheritance
+   - Functional composition over class inheritance
 
 6. **Code Quality**
    - No suppressed lint errors
@@ -85,6 +86,7 @@ Typescript/
 ### When Writing TypeScript Code
 
 - ✅ **Never use `any`** - Use `unknown` if type is truly unknown, then narrow it
+- ✅ **Avoid classes** - Use functions, closures, and composition instead (see note below)
 - ✅ **Always use descriptive names** - Never abbreviate variables
 - ✅ **Provide explicit return types** - Especially for exported functions
 - ✅ **Use type guards** - For runtime type checking and narrowing
@@ -95,11 +97,16 @@ Typescript/
 - ✅ **Prefer interfaces** - For object shapes that might be extended
 - ✅ **Use type aliases** - For unions, intersections, and computed types
 
+> ⚠️ **Important: Prefer Functional Paradigms Over Classes**
+>
+> Classes introduce hidden state, complex inheritance hierarchies, and unnecessary overhead. Modern TypeScript with functional patterns is cleaner, more testable, and easier to reason about. Use pure functions, closures, and composition instead. Only use classes when absolutely necessary (custom Error classes, framework requirements, or genuinely complex stateful objects).
+
 ### Type Safety Checklist
 
 Before submitting code, ensure:
 
 - [ ] No `any` types (use `unknown` and narrow)
+- [ ] No unnecessary classes (use functions and closures instead)
 - [ ] All exported functions have explicit return types
 - [ ] No suppressed lint errors (`@ts-ignore`, `eslint-disable`)
 - [ ] All variables use descriptive, non-abbreviated names
@@ -194,6 +201,8 @@ This general TypeScript guide can be used alongside framework-specific rules:
 ### DO ✅
 
 - Use TypeScript's type system fully
+- **Use functions and closures instead of classes**
+- **Use composition instead of inheritance**
 - Write descriptive, non-abbreviated variable names
 - Provide explicit return types for public APIs
 - Use type guards for runtime type checking
@@ -206,6 +215,8 @@ This general TypeScript guide can be used alongside framework-specific rules:
 ### DON'T ❌
 
 - Never use `any` - use `unknown` and narrow
+- **Never use classes unless absolutely necessary** (Error classes, framework APIs, complex state)
+- **Never use inheritance when composition works**
 - Never suppress errors - fix the root cause
 - Never abbreviate variables - use full names
 - Never skip return types on exported functions
@@ -242,6 +253,7 @@ When updating these rules:
 ## Remember
 
 - **TypeScript is a tool for safety** - use it fully, don't bypass it
+- **Functions over classes** - prefer functional paradigms for cleaner, more testable code
 - **Readability matters** - code is read more than written
 - **Consistency is key** - follow these patterns uniformly
 - **Fix, don't suppress** - every error is an opportunity to improve

@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Vibe Coding Rules - Comprehensive Development Guidelines</title>
+    <title>Vibe Coding Rules - DARK-lab's Comprehensive Development Guidelines</title>
     <link rel="stylesheet" href="styles.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -18,7 +18,8 @@
         <div class="container">
             <div class="header-content">
                 <h1 class="logo">Vibe Coding Rules</h1>
-                <p class="tagline">Comprehensive development guidelines development modern technology with AI</p>
+                <p class="tagline">Comprehensive development guidelines for developing modern technology with AI</p>
+                <p class="tagline">By <a href="https://dark-labs.co" target="_blank">DARK-labs</a></p>
             </div>
         </div>
     </header>
@@ -27,9 +28,18 @@
         <div class="container">
             <section class="intro">
                 <h2>What are Cursor Rules?</h2>
-                <p>Cursor rules are markdown files (`.mdc` format) that provide context and guidelines to AI coding
+                <p>Cursor rules are markdown files (<code>.mdc</code> format) that provide context and guidelines to AI coding
                     assistants. They help ensure that AI-generated code follows your project's specific patterns,
                     conventions, architectural decisions, and best practices for each technology stack.</p>
+                <h2>How to Use These Rules</h2>
+                <p>Copy the rule files into your project's <code>.cursor/rules</code> directory. Each rule file can be configured with different application modes:</p>
+                <ul>
+                    <li><strong>Always Apply</strong> — Rule is included in every chat session</li>
+                    <li><strong>Apply Intelligently</strong> — Agent decides when it's relevant based on description</li>
+                    <li><strong>Apply to Specific Files</strong> — Triggers when files match a glob pattern</li>
+                    <li><strong>Apply Manually</strong> — Only when @-mentioned in chat</li>
+                </ul>
+                <p>You can also use nested rules by placing <code>.cursor/rules</code> directories in subdirectories (e.g., <code>backend/.cursor/rules</code>) for scoped instructions.</p>
             </section>
 
             <section class="stacks" id="stacks">
@@ -43,37 +53,31 @@
                 <h2>Common Principles</h2>
                 <div class="principles-grid">
                     <div class="principle-card">
-                        <div class="principle-icon">✅</div>
                         <h3>No Hiding</h3>
                         <p>Never hide compiler warnings, linter errors, type checker warnings, or security issues. All
                             must be resolved.</p>
                     </div>
                     <div class="principle-card">
-                        <div class="principle-icon">📝</div>
                         <h3>Logging Guidelines</h3>
-                        <p><strong>⚠️ IMPORTANT:</strong> Only add logs when explicitly requested. By default, do NOT
+                        <p><strong>IMPORTANT:</strong> Only add logs when explicitly requested. By default, do NOT
                             add logs unless asked.</p>
                     </div>
                     <div class="principle-card">
-                        <div class="principle-icon">💬</div>
                         <h3>Commenting</h3>
                         <p>Focus on explaining the <strong>"why"</strong> and <strong>"intent"</strong>, not just the
                             <strong>"what"</strong>.
                         </p>
                     </div>
                     <div class="principle-card">
-                        <div class="principle-icon">🎯</div>
                         <h3>Code Style</h3>
                         <p><strong>NEVER abbreviate variables</strong> - Always use full, descriptive names. Follow
                             language-specific conventions.</p>
                     </div>
                     <div class="principle-card">
-                        <div class="principle-icon">🧪</div>
                         <h3>Testing</h3>
                         <p>Write comprehensive tests, aim for high coverage on critical paths, and test edge cases.</p>
                     </div>
                     <div class="principle-card">
-                        <div class="principle-icon">🔀</div>
                         <h3>Git Workflow</h3>
                         <p>Use Conventional Commits format, write clear commit messages, and never commit secrets.</p>
                     </div>
@@ -87,10 +91,26 @@
         <div class="modal-content">
             <div class="modal-header">
                 <h2 id="modalTitle"></h2>
-                <button class="modal-close" id="modalClose">&times;</button>
+                <div class="modal-actions">
+                    <button class="action-btn" id="copyBtn" title="Copy to clipboard">
+                        <span class="action-text">Copy</span>
+                    </button>
+                    <button class="action-btn" id="saveBtn" title="Download .mdc file">
+                        <span class="action-text">Save</span>
+                    </button>
+                    <button class="modal-close" id="modalClose">&times;</button>
+                </div>
             </div>
             <div class="modal-body">
                 <div id="modalContent"></div>
+            </div>
+            <div class="modal-footer" id="modalFooter">
+                <button class="action-btn action-btn-large" id="copyBtnFooter">
+                    <span>Copy Rule Content</span>
+                </button>
+                <button class="action-btn action-btn-large" id="saveBtnFooter">
+                    <span>Download .mdc File</span>
+                </button>
             </div>
         </div>
     </div>

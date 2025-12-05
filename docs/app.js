@@ -1,3 +1,7 @@
+// Store current guide for copy/save functionality
+let currentGuide = null;
+let currentStack = null;
+
 // Enhanced markdown parser for rendering guide content
 function parseMarkdown(markdown) {
     if (!markdown) return '';
@@ -137,18 +141,18 @@ function renderStacks(stacks) {
         return `
             <div class="stack-card" data-stack="${stack.id}">
                 <div class="stack-header">
-                    <div class="stack-icon">${stack.icon}</div>
+                    <div class="stack-icon">
+                        <img src="${stack.icon}" alt="${stack.name}" />
+                    </div>
                     <h3 class="stack-title">${stack.name}</h3>
                 </div>
                 <p class="stack-summary">${stack.summary}</p>
                 <p class="stack-focus">Focus: ${stack.focus}</p>
                 <div class="stack-stats">
                     <div class="stack-stat">
-                        <span>📚</span>
                         <span>${guidesCount} guides</span>
                     </div>
                     <div class="stack-stat">
-                        <span>✅</span>
                         <span>${alwaysApplyCount} auto-apply</span>
                     </div>
                 </div>
@@ -192,11 +196,21 @@ function showStackOverview(stackId) {
     const stack = data.stacks.find(s => s.id === stackId);
     if (!stack) return;
     
+    // Clear current guide for stack overview
+    currentGuide = null;
+    currentStack = stack;
+    
     const modal = document.getElementById('guideModal');
     const modalTitle = document.getElementById('modalTitle');
     const modalContent = document.getElementById('modalContent');
+    const modalFooter = document.getElementById('modalFooter');
     
-    modalTitle.textContent = `${stack.icon} ${stack.name}`;
+    modalTitle.innerHTML = `<img src="${stack.icon}" alt="${stack.name}" class="modal-icon" /> ${stack.name}`;
+    modalFooter.classList.remove('visible');
+    
+    // Hide copy/save buttons for stack overview
+    document.getElementById('copyBtn').style.display = 'none';
+    document.getElementById('saveBtn').style.display = 'none';
     
     let content = `<div style="margin-bottom: 1.5rem;">`;
     content += `<p style="font-size: 0.95rem; color: var(--color-text-light); margin-bottom: 1rem; font-weight: 300; line-height: 1.6;">${stack.summary}</p>`;
@@ -243,11 +257,20 @@ function showGuide(stackId, guideId) {
     const guide = stack.guides.find(g => g.id === guideId);
     if (!guide) return;
     
+    // Store for copy/save functionality
+    currentGuide = guide;
+    currentStack = stack;
+    
     const modal = document.getElementById('guideModal');
     const modalTitle = document.getElementById('modalTitle');
     const modalContent = document.getElementById('modalContent');
+    const modalFooter = document.getElementById('modalFooter');
     
-    modalTitle.textContent = `${stack.icon} ${guide.title}`;
+    modalTitle.innerHTML = `<img src="${stack.icon}" alt="${stack.name}" class="modal-icon" /> ${guide.title}`;
+    
+    // Show copy/save buttons for guide view
+    document.getElementById('copyBtn').style.display = 'flex';
+    document.getElementById('saveBtn').style.display = 'flex';
     
     let content = '';
     
@@ -270,18 +293,118 @@ function showGuide(stackId, guideId) {
     content += parseMarkdown(guide.content);
     
     modalContent.innerHTML = content;
+    modalFooter.classList.add('visible');
     modal.classList.add('active');
+}
+
+// Build the full .mdc content with frontmatter
+function buildMdcContent(guide) {
+    let content = '---\n';
+    
+    if (guide.frontmatter.description) {
+        content += `description: "${guide.frontmatter.description}"\n`;
+    }
+    
+    if (guide.globs && guide.globs.length > 0) {
+        content += 'globs:\n';
+        guide.globs.forEach(glob => {
+            content += `  - "${glob}"\n`;
+        });
+    }
+    
+    content += `alwaysApply: ${guide.alwaysApply}\n`;
+    content += '---\n\n';
+    content += guide.content;
+    
+    return content;
+}
+
+// Copy functionality
+async function copyGuideContent(btn) {
+    if (!currentGuide) return;
+    
+    const content = buildMdcContent(currentGuide);
+    
+    try {
+        await navigator.clipboard.writeText(content);
+        showButtonSuccess(btn, 'Copied!');
+    } catch (err) {
+        // Fallback for older browsers
+        const textarea = document.createElement('textarea');
+        textarea.value = content;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+        showButtonSuccess(btn, 'Copied!');
+    }
+}
+
+// Save/download functionality
+function saveGuideFile() {
+    if (!currentGuide) return;
+    
+    const content = buildMdcContent(currentGuide);
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    
+    // Ensure filename has .mdc extension
+    let filename = currentGuide.fileName || currentGuide.id;
+    if (!filename.endsWith('.mdc')) {
+        filename = filename + '.mdc';
+    }
+    
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
+
+// Show success state on button
+function showButtonSuccess(btn, text) {
+    const originalHTML = btn.innerHTML;
+    btn.classList.add('success');
+    btn.innerHTML = `<span>${text}</span>`;
+    
+    setTimeout(() => {
+        btn.classList.remove('success');
+        btn.innerHTML = originalHTML;
+    }, 2000);
 }
 
 // Modal close handlers
 document.getElementById('modalClose').addEventListener('click', () => {
     document.getElementById('guideModal').classList.remove('active');
+    document.getElementById('modalFooter').classList.remove('visible');
 });
 
 document.getElementById('guideModal').addEventListener('click', (e) => {
     if (e.target.id === 'guideModal') {
         document.getElementById('guideModal').classList.remove('active');
+        document.getElementById('modalFooter').classList.remove('visible');
     }
+});
+
+// Copy and save button handlers
+document.getElementById('copyBtn').addEventListener('click', (e) => {
+    copyGuideContent(e.currentTarget);
+});
+
+document.getElementById('copyBtnFooter').addEventListener('click', (e) => {
+    copyGuideContent(e.currentTarget);
+});
+
+document.getElementById('saveBtn').addEventListener('click', () => {
+    saveGuideFile();
+});
+
+document.getElementById('saveBtnFooter').addEventListener('click', () => {
+    saveGuideFile();
 });
 
 // Load data and initialize

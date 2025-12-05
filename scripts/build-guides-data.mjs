@@ -11,7 +11,7 @@ const STACKS = [
     id: "arduino-platformio",
     name: "Arduino + PlatformIO",
     directory: "Arduino + PlatformIO",
-    icon: "🔌",
+    icon: "icons/arduino-platformio.png",
     summary: "Embedded systems & microcontrollers",
     focus: "Hardware abstraction, memory management, interrupts, safety",
   },
@@ -19,7 +19,7 @@ const STACKS = [
     id: "python-fastapi",
     name: "Python + FastAPI",
     directory: "Python + FastAPI",
-    icon: "🐍",
+    icon: "icons/python-fastapi.png",
     summary: "Backend API development with FastAPI",
     focus: "Async APIs, validation, security, testing",
   },
@@ -27,7 +27,7 @@ const STACKS = [
     id: "solidity-foundry",
     name: "Solidity + Foundry",
     directory: "solidity + foundry",
-    icon: "⛓️",
+    icon: "icons/solidity-foundry.png",
     summary: "Smart contract engineering with Foundry",
     focus: "Security-first, gas efficiency, upgradeability",
   },
@@ -35,7 +35,7 @@ const STACKS = [
     id: "typescript-react-nextjs",
     name: "TypeScript-React + Nextjs",
     directory: "Typescript-React + Nextjs",
-    icon: "⚛️",
+    icon: "icons/typescript-react-nextjs.png",
     summary: "Full-stack web development with Next.js",
     focus: "React patterns, accessibility, performance",
   },
@@ -43,7 +43,7 @@ const STACKS = [
     id: "python",
     name: "Python",
     directory: "Python",
-    icon: "🐍",
+    icon: "icons/python.png",
     summary: "General Python development",
     focus: "Type safety, readability, best practices",
   },
@@ -51,7 +51,7 @@ const STACKS = [
     id: "typescript",
     name: "TypeScript",
     directory: "Typescript",
-    icon: "📘",
+    icon: "icons/typescript.png",
     summary: "Type-safe JavaScript development",
     focus: "Type safety, code quality, best practices",
   },
@@ -141,13 +141,14 @@ async function buildGuidesData() {
 
   for (const stack of STACKS) {
     const stackDir = path.join(repoRoot, stack.directory);
-    const files = await fs.readdir(stackDir);
+    const rulesDir = path.join(stackDir, ".cursor", "rules");
+    const files = await fs.readdir(rulesDir);
     const mdcFiles = files.filter((f) => f.endsWith(".mdc"));
 
     const guides = [];
 
     for (const file of mdcFiles) {
-      const filePath = path.join(stackDir, file);
+      const filePath = path.join(rulesDir, file);
       const content = await fs.readFile(filePath, "utf-8");
       const { frontmatter, body } = parseFrontmatter(content);
 

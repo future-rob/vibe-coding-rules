@@ -326,3 +326,13 @@ When updating these rules:
 - **Errors should never pass silently** - always handle exceptions properly
 - **Consistency is key** - follow these patterns uniformly across the codebase
 
+
+
+
+
+
+
+
+
+
+
