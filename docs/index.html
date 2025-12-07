@@ -17,8 +17,7 @@
     <header class="header">
         <div class="container">
             <div class="header-content">
-                <h1 class="logo">Vibe Coding Rules</h1>
-                <p class="tagline">Comprehensive development guidelines for developing modern technology with AI</p>
+                <img src="icons/cover.png" alt="Vibe Coding Rules" class="cover-image" />
                 <p class="tagline">By <a href="https://dark-labs.co" target="_blank">DARK-labs</a></p>
             </div>
         </div>
@@ -27,19 +26,25 @@
     <main class="main">
         <div class="container">
             <section class="intro">
-                <h2>What are Cursor Rules?</h2>
-                <p>Cursor rules are markdown files (<code>.mdc</code> format) that provide context and guidelines to AI coding
+                <h2>What are <span class="highlight"><a href="https://cursor.com/docs/context/rules"
+                            target="_blank">Cursor
+                            Rules</a></span>?</span></h2>
+                <p>Cursor rules are markdown files (<code>.mdc</code> format) that provide context and guidelines to AI
+                    coding
                     assistants. They help ensure that AI-generated code follows your project's specific patterns,
                     conventions, architectural decisions, and best practices for each technology stack.</p>
                 <h2>How to Use These Rules</h2>
-                <p>Copy the rule files into your project's <code>.cursor/rules</code> directory. Each rule file can be configured with different application modes:</p>
+                <p>Copy the rule files into your project's <code>.cursor/rules</code> directory. Each rule file can be
+                    configured with different application modes:</p>
                 <ul>
                     <li><strong>Always Apply</strong> — Rule is included in every chat session</li>
-                    <li><strong>Apply Intelligently</strong> — Agent decides when it's relevant based on description</li>
+                    <li><strong>Apply Intelligently</strong> — Agent decides when it's relevant based on description
+                    </li>
                     <li><strong>Apply to Specific Files</strong> — Triggers when files match a glob pattern</li>
                     <li><strong>Apply Manually</strong> — Only when @-mentioned in chat</li>
                 </ul>
-                <p>You can also use nested rules by placing <code>.cursor/rules</code> directories in subdirectories (e.g., <code>backend/.cursor/rules</code>) for scoped instructions.</p>
+                <p>You can also use nested rules by placing <code>.cursor/rules</code> directories in subdirectories
+                    (e.g., <code>backend/.cursor/rules</code>) for scoped instructions.</p>
             </section>
 
             <section class="stacks" id="stacks">
@@ -53,14 +58,25 @@
                 <h2>Common Principles</h2>
                 <div class="principles-grid">
                     <div class="principle-card">
-                        <h3>No Hiding</h3>
+                        <div class="principle-header">
+                            <div class="principle-icon">
+                                <img src="icons/allSeeingEye.png" alt="No Hiding" />
+                            </div>
+                            <h3>No Hiding</h3>
+                        </div>
                         <p>Never hide compiler warnings, linter errors, type checker warnings, or security issues. All
                             must be resolved.</p>
                     </div>
                     <div class="principle-card">
-                        <h3>Logging Guidelines</h3>
+                        <div class="principle-header">
+                            <div class="principle-icon">
+                                <img src="icons/cyberMap.png" alt="Logging Guidelines" />
+                            </div>
+                            <h3>Logging Guidelines</h3>
+                        </div>
                         <p><strong>IMPORTANT:</strong> Only add logs when explicitly requested. By default, do NOT
                             add logs unless asked.</p>
+
                     </div>
                     <div class="principle-card">
                         <h3>Commenting</h3>
@@ -121,6 +137,7 @@
         </div>
     </footer>
 
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <script src="app.js"></script>
 </body>
 
