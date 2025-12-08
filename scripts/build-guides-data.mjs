@@ -8,6 +8,30 @@ const repoRoot = path.resolve(__dirname, "..");
 
 const STACKS = [
   {
+    id: "typescript",
+    name: "TypeScript",
+    directory: "Typescript",
+    icon: "icons/typescript.png",
+    summary: "Type-safe JavaScript development",
+    focus: "Type safety, code quality, best practices",
+  },
+  {
+    id: "python",
+    name: "Python",
+    directory: "Python",
+    icon: "icons/python.png",
+    summary: "General Python development",
+    focus: "Type safety, readability, best practices",
+  },
+  {
+    id: "rust",
+    name: "Rust",
+    directory: "Rust",
+    icon: "icons/rust.png",
+    summary: "Systems programming with Rust",
+    focus: "Memory safety, performance, zero-cost abstractions",
+  },
+  {
     id: "arduino-platformio",
     name: "Arduino + PlatformIO",
     directory: "Arduino + PlatformIO",
@@ -38,22 +62,6 @@ const STACKS = [
     icon: "icons/nextjs.png",
     summary: "Full-stack web development with Next.js",
     focus: "React patterns, accessibility, performance",
-  },
-  {
-    id: "python",
-    name: "Python",
-    directory: "Python",
-    icon: "icons/python.png",
-    summary: "General Python development",
-    focus: "Type safety, readability, best practices",
-  },
-  {
-    id: "typescript",
-    name: "TypeScript",
-    directory: "Typescript",
-    icon: "icons/typescript.png",
-    summary: "Type-safe JavaScript development",
-    focus: "Type safety, code quality, best practices",
   },
 ];
 

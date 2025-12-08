@@ -6,12 +6,13 @@ This folder contains PNG icon images for each technology stack.
 
 Icons should be named according to the stack `id` from `build-guides-data.mjs`:
 
-- `arduino-platformio.png` - Arduino + PlatformIO
-- `python-fastapi.png` - Python + FastAPI
-- `solidity-foundry.png` - Solidity + Foundry
-- `typescript-react-nextjs.png` - TypeScript-React + Nextjs
+- `arduino.png` - Arduino + PlatformIO
+- `fastapi.png` - Python + FastAPI
+- `solidity.png` - Solidity + Foundry
+- `nextjs.png` - TypeScript-React + Nextjs
 - `python.png` - Python
 - `typescript.png` - TypeScript
+- `rust.png` - Rust
 
 ## Icon Specifications
 
@@ -28,16 +29,3 @@ When adding a new technology stack:
 1. Add the icon file to this folder using the naming convention: `{stack-id}.png`
 2. The icon path will automatically be set to `icons/{stack-id}.png` in the build script
 3. Ensure the icon is optimized for web use
-
-
-
-
-
-
-
-
-
-
-
-
-

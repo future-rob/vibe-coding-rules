@@ -1,0 +1,908 @@
+---
+description: Comprehensive Rust code style guide based on Rust API Guidelines and modern best practices
+globs:
+  - "**/*.rs"
+alwaysApply: true
+---
+
+# Rust Code Style Guide
+
+## Philosophy
+
+This guide establishes Rust coding standards that prioritize:
+
+1. **Memory Safety** - Leverage Rust's ownership system fully
+2. **Performance** - Zero-cost abstractions and efficient code
+3. **Clarity** - Code should be clear and self-documenting
+4. **Consistency** - Uniform patterns across the codebase
+5. **Quality** - No unsafe code unless absolutely necessary, no shortcuts
+6. **Error Handling** - Proper use of `Result` and `Option` types
+
+## Core Principles
+
+### 1. Ownership and Borrowing
+
+Rust's ownership system is its core feature. Understand and use it properly:
+
+```rust
+// ✅ GOOD - Borrowing when you don't need ownership
+fn process_data(data: &str) -> usize {
+    data.len()
+}
+
+// ✅ GOOD - Taking ownership when needed
+fn consume_data(data: String) -> String {
+    format!("Processed: {}", data)
+}
+
+// ✅ GOOD - Mutable borrowing when you need to modify
+fn update_value(value: &mut i32) {
+    *value += 1;
+}
+
+// ❌ BAD - Unnecessary cloning
+fn bad_process(data: &str) -> String {
+    data.to_string() // Unnecessary allocation
+}
+
+// ✅ GOOD - Return reference or use Cow for flexibility
+use std::borrow::Cow;
+
+fn flexible_process(data: &str) -> Cow<str> {
+    if data.len() > 10 {
+        Cow::Owned(format!("Long: {}", data))
+    } else {
+        Cow::Borrowed(data)
+    }
+}
+```
+
+**Rules:**
+
+- Prefer borrowing (`&T`) over owned values (`T`) when possible
+- Use `&mut T` only when mutation is necessary
+- Avoid unnecessary `.clone()` calls
+- Use `Cow<'_, T>` when you might need owned or borrowed data
+- Understand the difference between `&str` and `String`, `&[T]` and `Vec<T>`
+
+### 2. Descriptive Naming
+
+**NEVER abbreviate variables.** Always use full, descriptive names.
+
+```rust
+// ❌ BAD - Abbreviated and unclear
+let wf = workflows.iter().filter(|w| w.status == "active");
+let usr = users.iter().find(|u| u.id == uid);
+fn calc_tot(items: &[Item]) -> f64 { 0.0 }
+
+// ✅ GOOD - Clear and descriptive
+let active_workflows: Vec<_> = workflows
+    .iter()
+    .filter(|workflow| workflow.status == "active")
+    .collect();
+
+let user = users.iter().find(|user| user.id == user_id);
+
+fn calculate_total(items: &[Item]) -> f64 {
+    items.iter().map(|item| item.price).sum()
+}
+```
+
+**Naming Conventions:**
+
+- **Variables & Functions:** `snake_case` - `get_user_profile`, `is_valid`, `has_permission`
+- **Types & Structs:** `PascalCase` - `UserService`, `ValidationError`, `ApiResponse`
+- **Constants:** `UPPER_SNAKE_CASE` - `MAX_RETRIES`, `DEFAULT_TIMEOUT`, `API_BASE_URL`
+- **Lifetimes:** Single lowercase letter - `'a`, `'b`, `'static`
+- **Type Parameters:** Single uppercase letter - `T`, `K`, `V`, `E` (or descriptive like `TData`)
+- **Modules:** `snake_case` - `user_service`, `validation`
+
+### 3. Type Definitions
+
+#### Structs and Enums
+
+```rust
+// ✅ GOOD - Well-structured struct
+#[derive(Debug, Clone, PartialEq)]
+pub struct User {
+    pub id: u64,
+    pub name: String,
+    pub email: String,
+    pub is_active: bool,
+}
+
+// ✅ GOOD - Struct with private fields and methods
+pub struct UserService {
+    database: Database,
+    cache: Cache,
+}
+
+impl UserService {
+    pub fn new(database: Database, cache: Cache) -> Self {
+        Self { database, cache }
+    }
+
+    pub async fn get_user(&self, user_id: u64) -> Result<Option<User>, Error> {
+        // Implementation
+        Ok(None)
+    }
+}
+
+// ✅ GOOD - Enum for state management
+#[derive(Debug, Clone, PartialEq)]
+pub enum AsyncState<T> {
+    Idle,
+    Loading,
+    Success { data: T },
+    Error { error: String },
+}
+
+// ✅ GOOD - Enum with associated data
+#[derive(Debug)]
+pub enum ApiError {
+    NotFound { resource: String, id: u64 },
+    ValidationError { field: String, message: String },
+    NetworkError { source: std::io::Error },
+}
+```
+
+#### Type Aliases
+
+```rust
+// ✅ GOOD - Type aliases for clarity
+type UserId = u64;
+type UserMap = HashMap<UserId, User>;
+type Result<T> = std::result::Result<T, ApiError>;
+
+// ✅ GOOD - Generic type aliases
+type BoxFuture<T> = std::pin::Pin<Box<dyn Future<Output = T> + Send>>;
+```
+
+### 4. Function Signatures
+
+````rust
+// ✅ GOOD - Clear, typed, documented
+/// Calculates the total price of items with optional discount.
+///
+/// # Arguments
+///
+/// * `items` - Slice of items with price property
+/// * `discount_percentage` - Optional discount (0.0-100.0)
+///
+/// # Returns
+///
+/// Total price after discount
+///
+/// # Errors
+///
+/// Returns `ValidationError` if discount is out of range
+///
+/// # Examples
+///
+/// ```
+/// let items = vec![Item { price: 10.0 }, Item { price: 20.0 }];
+/// let total = calculate_total(&items, Some(10.0))?;
+/// ```
+pub fn calculate_total(
+    items: &[Item],
+    discount_percentage: Option<f64>,
+) -> Result<f64, ValidationError> {
+    let discount = discount_percentage.unwrap_or(0.0);
+
+    if discount < 0.0 || discount > 100.0 {
+        return Err(ValidationError::new(
+            "Discount must be between 0 and 100",
+        ));
+    }
+
+    let subtotal: f64 = items.iter().map(|item| item.price).sum();
+    Ok(subtotal * (1.0 - discount / 100.0))
+}
+````
+
+**Best Practices:**
+
+- Always provide explicit return types for public functions
+- Use `&[T]` instead of `&Vec<T>` for function parameters
+- Use `Option<T>` for optional values, not `T` with sentinel values
+- Use `Result<T, E>` for fallible operations
+- Document public APIs with doc comments (`///`)
+- Use `# Examples` section in docs with runnable code
+
+### 5. Error Handling
+
+```rust
+// ✅ GOOD - Custom error types
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum ApplicationError {
+    #[error("Validation failed: {field} - {message}")]
+    ValidationError { field: String, message: String },
+
+    #[error("Resource not found: {resource} (id: {id})")]
+    NotFound { resource: String, id: u64 },
+
+    #[error("Database error: {0}")]
+    DatabaseError(#[from] sqlx::Error),
+
+    #[error("IO error: {0}")]
+    IoError(#[from] std::io::Error),
+}
+
+// ✅ GOOD - Using Result for fallible operations
+pub fn parse_user_id(id_str: &str) -> Result<u64, ApplicationError> {
+    id_str
+        .parse::<u64>()
+        .map_err(|_| ApplicationError::ValidationError {
+            field: "id".to_string(),
+            message: format!("Invalid user ID: {}", id_str),
+        })
+}
+
+// ✅ GOOD - Error propagation with ?
+pub fn get_user_by_id(
+    db: &Database,
+    id_str: &str,
+) -> Result<Option<User>, ApplicationError> {
+    let user_id = parse_user_id(id_str)?;
+    db.fetch_user(user_id)
+        .map_err(|e| ApplicationError::DatabaseError(e))
+}
+
+// ✅ GOOD - Matching on Result
+match get_user_by_id(&database, "123") {
+    Ok(Some(user)) => println!("Found user: {}", user.name),
+    Ok(None) => println!("User not found"),
+    Err(ApplicationError::ValidationError { field, message }) => {
+        eprintln!("Validation error in {}: {}", field, message);
+    }
+    Err(e) => eprintln!("Error: {}", e),
+}
+
+// ❌ BAD - Using unwrap() in production code
+let user_id = id_str.parse::<u64>().unwrap(); // Can panic!
+
+// ✅ GOOD - Proper error handling
+let user_id = id_str.parse::<u64>()
+    .map_err(|_| ApplicationError::ValidationError {
+        field: "id".to_string(),
+        message: "Invalid ID format".to_string(),
+    })?;
+```
+
+### 6. Option and Result Patterns
+
+```rust
+// ✅ GOOD - Using Option properly
+fn find_user(users: &[User], id: u64) -> Option<&User> {
+    users.iter().find(|user| user.id == id)
+}
+
+// ✅ GOOD - Option combinators
+let user_email = find_user(&users, user_id)
+    .map(|user| &user.email)
+    .unwrap_or(&"unknown@example.com".to_string());
+
+// ✅ GOOD - Using match for explicit handling
+let result = match find_user(&users, user_id) {
+    Some(user) => format!("Found: {}", user.name),
+    None => "User not found".to_string(),
+};
+
+// ✅ GOOD - Using if let for single case
+if let Some(user) = find_user(&users, user_id) {
+    println!("User: {}", user.name);
+}
+
+// ✅ GOOD - Using Result properly
+fn divide(a: f64, b: f64) -> Result<f64, String> {
+    if b == 0.0 {
+        Err("Division by zero".to_string())
+    } else {
+        Ok(a / b)
+    }
+}
+
+// ✅ GOOD - Result combinators
+let result = divide(10.0, 2.0)
+    .map(|value| value * 2.0)
+    .map_err(|e| format!("Math error: {}", e));
+
+// ✅ GOOD - Chaining operations
+let user_name = users
+    .iter()
+    .find(|u| u.id == user_id)
+    .ok_or_else(|| ApplicationError::NotFound {
+        resource: "User".to_string(),
+        id: user_id,
+    })?
+    .name
+    .clone();
+```
+
+### 7. Lifetimes
+
+```rust
+// ✅ GOOD - Explicit lifetimes when needed
+fn longest<'a>(x: &'a str, y: &'a str) -> &'a str {
+    if x.len() > y.len() {
+        x
+    } else {
+        y
+    }
+}
+
+// ✅ GOOD - Struct with lifetime parameter
+struct Parser<'a> {
+    input: &'a str,
+    position: usize,
+}
+
+impl<'a> Parser<'a> {
+    fn new(input: &'a str) -> Self {
+        Self { input, position: 0 }
+    }
+
+    fn parse(&mut self) -> Result<&'a str, ParseError> {
+        // Implementation
+        Ok(&self.input[..])
+    }
+}
+
+// ✅ GOOD - Using 'static for owned data
+fn create_static_string() -> &'static str {
+    "This string lives for the entire program"
+}
+
+// ✅ GOOD - Elided lifetimes (Rust infers them)
+fn get_first_word(s: &str) -> &str {
+    s.split_whitespace().next().unwrap_or("")
+}
+```
+
+### 8. Generics and Traits
+
+```rust
+// ✅ GOOD - Generic functions
+fn identity<T>(value: T) -> T {
+    value
+}
+
+// ✅ GOOD - Generic with trait bounds
+use std::fmt::Display;
+
+fn print_item<T: Display>(item: T) {
+    println!("{}", item);
+}
+
+// ✅ GOOD - Using where clause for complex bounds
+fn process_data<T, E>(data: T) -> Result<String, E>
+where
+    T: Serialize,
+    E: From<serde_json::Error>,
+{
+    serde_json::to_string(&data).map_err(Into::into)
+}
+
+// ✅ GOOD - Trait definitions
+pub trait Repository<T> {
+    fn find_by_id(&self, id: u64) -> Result<Option<T>, Error>;
+    fn save(&self, entity: T) -> Result<T, Error>;
+    fn delete(&self, id: u64) -> Result<(), Error>;
+}
+
+// ✅ GOOD - Trait implementations
+impl Repository<User> for UserRepository {
+    fn find_by_id(&self, id: u64) -> Result<Option<User>, Error> {
+        // Implementation
+        Ok(None)
+    }
+
+    fn save(&self, entity: User) -> Result<User, Error> {
+        // Implementation
+        Ok(entity)
+    }
+
+    fn delete(&self, id: u64) -> Result<(), Error> {
+        // Implementation
+        Ok(())
+    }
+}
+
+// ✅ GOOD - Using trait objects
+fn process_repositories(repos: &[Box<dyn Repository<User>>]) {
+    for repo in repos {
+        let _ = repo.find_by_id(1);
+    }
+}
+```
+
+### 9. Collections and Iterators
+
+```rust
+// ✅ GOOD - Using iterators
+let squares: Vec<i32> = (0..10).map(|x| x * x).collect();
+let even_squares: Vec<i32> = (0..10)
+    .filter(|x| x % 2 == 0)
+    .map(|x| x * x)
+    .collect();
+
+// ✅ GOOD - Iterator chains
+let total: f64 = items
+    .iter()
+    .filter(|item| item.is_active)
+    .map(|item| item.price)
+    .sum();
+
+// ✅ GOOD - Collecting into different types
+let user_map: HashMap<u64, User> = users
+    .into_iter()
+    .map(|user| (user.id, user))
+    .collect();
+
+let user_names: Vec<String> = users.iter().map(|u| u.name.clone()).collect();
+
+// ✅ GOOD - Using entry API for HashMap
+use std::collections::HashMap;
+
+let mut counts = HashMap::new();
+for item in items {
+    *counts.entry(item.category).or_insert(0) += 1;
+}
+
+// ✅ GOOD - Using slices instead of Vec when possible
+fn process_items(items: &[Item]) -> usize {
+    items.len()
+}
+
+// ❌ BAD - Unnecessary Vec allocation
+fn bad_process(items: &Vec<Item>) -> usize {
+    items.len()
+}
+```
+
+### 10. Async/Await
+
+```rust
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+// ✅ GOOD - Proper async function
+async fn fetch_user(user_id: u64) -> Result<User, Error> {
+    let response = reqwest::get(&format!("https://api.example.com/users/{}", user_id))
+        .await?;
+
+    response.json::<User>().await
+}
+
+// ✅ GOOD - Parallel execution
+use futures::future;
+
+async fn fetch_user_data(user_id: u64) -> Result<(User, Vec<Post>), Error> {
+    let (user, posts) = future::try_join(
+        fetch_user(user_id),
+        fetch_user_posts(user_id),
+    ).await?;
+
+    Ok((user, posts))
+}
+
+// ✅ GOOD - Batch processing with semaphore
+use tokio::sync::Semaphore;
+
+async fn fetch_all_users(
+    user_ids: Vec<u64>,
+    max_concurrent: usize,
+) -> Vec<Result<User, Error>> {
+    let semaphore = Semaphore::new(max_concurrent);
+    let mut handles = vec![];
+
+    for user_id in user_ids {
+        let permit = semaphore.clone().acquire_owned().await.unwrap();
+        let handle = tokio::spawn(async move {
+            let _permit = permit;
+            fetch_user(user_id).await
+        });
+        handles.push(handle);
+    }
+
+    let mut results = vec![];
+    for handle in handles {
+        results.push(handle.await.unwrap());
+    }
+    results
+}
+
+// ✅ GOOD - Timeout handling
+use tokio::time::{timeout, Duration};
+
+async fn fetch_with_timeout(
+    url: &str,
+    timeout_duration: Duration,
+) -> Result<String, Error> {
+    timeout(timeout_duration, fetch_data(url))
+        .await
+        .map_err(|_| Error::Timeout)?
+}
+```
+
+### 11. Pattern Matching
+
+```rust
+// ✅ GOOD - Exhaustive pattern matching
+match user.status {
+    UserStatus::Active => println!("User is active"),
+    UserStatus::Inactive => println!("User is inactive"),
+    UserStatus::Suspended => println!("User is suspended"),
+}
+
+// ✅ GOOD - Matching on Option
+match find_user(&users, user_id) {
+    Some(user) => println!("Found: {}", user.name),
+    None => println!("User not found"),
+}
+
+// ✅ GOOD - Matching on Result
+match divide(10.0, 2.0) {
+    Ok(value) => println!("Result: {}", value),
+    Err(e) => eprintln!("Error: {}", e),
+}
+
+// ✅ GOOD - Using if let for single case
+if let Some(user) = find_user(&users, user_id) {
+    process_user(user);
+}
+
+// ✅ GOOD - Destructuring in patterns
+match user {
+    User { id, name, email, .. } if id > 100 => {
+        println!("High ID user: {}", name);
+    }
+    User { name, .. } => {
+        println!("User: {}", name);
+    }
+}
+
+// ✅ GOOD - Guard clauses
+match number {
+    n if n < 0 => println!("Negative"),
+    n if n == 0 => println!("Zero"),
+    n if n > 0 && n < 100 => println!("Small positive"),
+    _ => println!("Large positive"),
+}
+```
+
+### 12. Modules and Organization
+
+```rust
+// ✅ GOOD - Clear module structure
+// src/lib.rs
+pub mod user;
+pub mod validation;
+pub mod errors;
+
+pub use errors::{ApplicationError, Result};
+
+// src/user.rs
+use crate::errors::Result;
+
+pub struct User {
+    pub id: u64,
+    pub name: String,
+}
+
+impl User {
+    pub fn new(id: u64, name: String) -> Self {
+        Self { id, name }
+    }
+}
+
+// ✅ GOOD - Re-exports for convenience
+// src/lib.rs
+pub mod user {
+    pub use crate::user_service::UserService;
+    pub use crate::user_repository::UserRepository;
+}
+
+// ✅ GOOD - Using pub(crate) for internal APIs
+pub(crate) fn internal_helper() {
+    // Only accessible within this crate
+}
+```
+
+### 13. Documentation
+
+````rust
+// ✅ GOOD - Module-level documentation
+//! # User Service Module
+//!
+//! This module provides user management functionality.
+
+// ✅ GOOD - Function documentation
+/// Validates user input and creates a new user account.
+///
+/// # Arguments
+///
+/// * `user_data` - User registration data
+/// * `user_data.email` - Valid email address
+/// * `user_data.password` - Password (min 8 characters)
+///
+/// # Returns
+///
+/// Returns `Ok(User)` if successful, `Err(ValidationError)` if validation fails
+///
+/// # Errors
+///
+/// * `ValidationError` - If input validation fails
+/// * `ConflictError` - If email already exists
+///
+/// # Examples
+///
+/// ```
+/// use crate::user::create_user;
+/// use crate::user::UserData;
+///
+/// let user_data = UserData {
+///     email: "user@example.com".to_string(),
+///     password: "securePassword123".to_string(),
+/// };
+///
+/// let user = create_user(user_data)?;
+/// ```
+pub fn create_user(user_data: UserData) -> Result<User, ApplicationError> {
+    // Implementation
+    Ok(User::new(1, "Test".to_string()))
+}
+
+// ✅ GOOD - Inline comments explain "why", not "what"
+// Using Arc for shared ownership across threads
+let shared_data = Arc::new(data);
+````
+
+### 14. Formatting and Style
+
+**Indentation:**
+
+- Use 4 spaces (rustfmt default)
+- Consistent indentation throughout
+
+**Line Length:**
+
+- Maximum 100 characters (configurable)
+- Break long lines appropriately
+
+**Spacing:**
+
+- One space after keywords: `if condition {`
+- Spaces around operators: `let sum = a + b;`
+- No spaces inside function call parentheses: `function(arg)`
+- Trailing commas in multiline structures
+
+**Example:**
+
+```rust
+// ✅ GOOD - Proper formatting
+fn calculate_total(items: &[Item], discount: Option<f64>) -> Result<f64, Error> {
+    let discount = discount.unwrap_or(0.0);
+    let subtotal: f64 = items.iter().map(|item| item.price).sum();
+
+    Ok(subtotal * (1.0 - discount / 100.0))
+}
+```
+
+### 15. Unsafe Code
+
+```rust
+// ❌ BAD - Using unsafe unnecessarily
+unsafe {
+    let ptr = data.as_ptr();
+    // Dangerous operations
+}
+
+// ✅ GOOD - Unsafe only when absolutely necessary, with clear documentation
+/// # Safety
+///
+/// This function is unsafe because it dereferences a raw pointer.
+/// The caller must ensure:
+/// - `ptr` is valid and points to initialized memory
+/// - The memory is not freed while in use
+/// - No other thread is mutating the data
+unsafe fn process_raw_pointer(ptr: *const u8, len: usize) -> Vec<u8> {
+    std::slice::from_raw_parts(ptr, len).to_vec()
+}
+
+// ✅ GOOD - Wrapping unsafe in safe API
+pub fn safe_process_data(data: &[u8]) -> Vec<u8> {
+    unsafe {
+        // Unsafe code is encapsulated and safe to use
+        process_raw_pointer(data.as_ptr(), data.len())
+    }
+}
+```
+
+### 16. Common Patterns to Avoid
+
+```rust
+// ❌ BAD - Using unwrap() in production code
+let user_id = id_str.parse::<u64>().unwrap();
+
+// ✅ GOOD - Proper error handling
+let user_id = id_str.parse::<u64>()
+    .map_err(|_| ApplicationError::ValidationError {
+        field: "id".to_string(),
+        message: "Invalid ID format".to_string(),
+    })?;
+
+// ❌ BAD - Unnecessary cloning
+let user_name = user.name.clone();
+
+// ✅ GOOD - Borrow when possible
+let user_name = &user.name;
+
+// ❌ BAD - Using &Vec<T> instead of &[T]
+fn process_items(items: &Vec<Item>) {}
+
+// ✅ GOOD - Use slice
+fn process_items(items: &[Item]) {}
+
+// ❌ BAD - Abbreviated variable names
+let wf = workflows.iter().filter(|w| w.active);
+
+// ✅ GOOD - Descriptive names
+let active_workflows: Vec<_> = workflows
+    .iter()
+    .filter(|workflow| workflow.is_active)
+    .collect();
+
+// ❌ BAD - Missing error handling
+fn risky_operation() -> String {
+    std::fs::read_to_string("file.txt").unwrap()
+}
+
+// ✅ GOOD - Proper error handling
+fn safe_operation() -> Result<String, std::io::Error> {
+    std::fs::read_to_string("file.txt")
+}
+```
+
+### 17. Testing
+
+```rust
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ✅ GOOD - Unit tests
+    #[test]
+    fn test_calculate_total() {
+        let items = vec![
+            Item { price: 10.0 },
+            Item { price: 20.0 },
+        ];
+
+        let result = calculate_total(&items, Some(10.0)).unwrap();
+        assert_eq!(result, 27.0);
+    }
+
+    // ✅ GOOD - Test with error cases
+    #[test]
+    fn test_calculate_total_invalid_discount() {
+        let items = vec![Item { price: 10.0 }];
+
+        let result = calculate_total(&items, Some(150.0));
+        assert!(result.is_err());
+    }
+
+    // ✅ GOOD - Integration tests
+    #[tokio::test]
+    async fn test_fetch_user() {
+        let user = fetch_user(1).await.unwrap();
+        assert_eq!(user.id, 1);
+    }
+
+    // ✅ GOOD - Test helpers
+    fn create_test_user(id: u64, name: &str) -> User {
+        User {
+            id,
+            name: name.to_string(),
+            email: format!("{}@example.com", name),
+            is_active: true,
+        }
+    }
+}
+```
+
+### 18. Performance Considerations
+
+```rust
+// ✅ GOOD - Using references to avoid cloning
+fn process_large_data(data: &[u8]) -> usize {
+    data.len()
+}
+
+// ✅ GOOD - Using Cow for flexible ownership
+use std::borrow::Cow;
+
+fn process_string(s: Cow<str>) -> String {
+    match s {
+        Cow::Borrowed(borrowed) => format!("Borrowed: {}", borrowed),
+        Cow::Owned(owned) => format!("Owned: {}", owned),
+    }
+}
+
+// ✅ GOOD - Pre-allocating Vec capacity when size is known
+let mut items = Vec::with_capacity(1000);
+for i in 0..1000 {
+    items.push(i);
+}
+
+// ✅ GOOD - Using Box for large stack allocations
+let large_array = Box::new([0u8; 1_000_000]);
+
+// ✅ GOOD - Using Rc/Arc for shared ownership
+use std::sync::Arc;
+
+let shared_data = Arc::new(data);
+let clone1 = Arc::clone(&shared_data);
+let clone2 = Arc::clone(&shared_data);
+```
+
+## Code Quality Checklist
+
+Before submitting code, ensure:
+
+- [ ] No `unwrap()` calls in production code (use proper error handling)
+- [ ] No unnecessary `clone()` calls
+- [ ] All public functions have doc comments
+- [ ] Error types are properly defined and used
+- [ ] Lifetimes are correctly specified when needed
+- [ ] No unsafe code unless absolutely necessary (with documentation)
+- [ ] All variables use descriptive, non-abbreviated names
+- [ ] Code follows formatting guidelines (run rustfmt)
+- [ ] Tests are written for new functionality
+- [ ] Clippy warnings are addressed
+
+## Pre-commit Configuration
+
+```yaml
+# .pre-commit-config.yaml
+repos:
+  - repo: https://github.com/doublify/pre-commit-rust
+    rev: v1.0
+    hooks:
+      - id: fmt
+      - id: clippy
+      - id: test
+```
+
+## Cargo.toml Configuration
+
+```toml
+[package]
+name = "your-project"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+thiserror = "1.0"
+tokio = { version = "1.0", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+
+[dev-dependencies]
+tokio-test = "0.4"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+```
+
+## Remember
+
+- **Rust is about safety** - leverage the type system and ownership model
+- **Zero-cost abstractions** - write high-level code without performance penalty
+- **Explicit is better than implicit** - make ownership and lifetimes clear
+- **Error handling is mandatory** - use `Result` and `Option` properly
+- **No shortcuts** - avoid `unwrap()` and unsafe code unless necessary
+- **Documentation matters** - write clear doc comments for public APIs
+- **Consistency is key** - follow these patterns uniformly across the codebase

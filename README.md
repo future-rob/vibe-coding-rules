@@ -10,9 +10,10 @@ Cursor rules are markdown files (`.mdc` format) that provide context and guideli
 
 ## Supported Technology Stacks
 
-This repository contains coding rules for five major technology stacks:
+This repository contains coding rules for seven major technology stacks:
 
-### 🔌 [Arduino + PlatformIO](./Arduino%20+%20PlatformIO/)
+### ![Arduino + PlatformIO Icon](./docs/icons/arduino.png) [Arduino + PlatformIO](./Arduino%20+%20PlatformIO/)
+
 **Embedded Systems & Microcontroller Development**
 
 - **Framework:** Arduino Framework with PlatformIO
@@ -22,7 +23,8 @@ This repository contains coding rules for five major technology stacks:
 
 [📖 View Arduino + PlatformIO Rules →](./Arduino%20+%20PlatformIO/README.md)
 
-### 🐍 [Python + FastAPI](./Python%20+%20FastAPI/)
+### ![Python + FastAPI Icon](./docs/icons/fastapi.png) [Python + FastAPI](./Python%20+%20FastAPI/)
+
 **Backend API Development**
 
 - **Framework:** FastAPI (Async REST API Framework)
@@ -32,7 +34,8 @@ This repository contains coding rules for five major technology stacks:
 
 [📖 View Python + FastAPI Rules →](./Python%20+%20FastAPI/README.md)
 
-### ⛓️ [Solidity + Foundry](./solidity%20+%20foundry/)
+### ![Solidity + Foundry Icon](./docs/icons/solidity.png) [Solidity + Foundry](./solidity%20+%20foundry/)
+
 **Smart Contract Development**
 
 - **Language:** Solidity 0.8.20+
@@ -42,7 +45,8 @@ This repository contains coding rules for five major technology stacks:
 
 [📖 View Solidity + Foundry Rules →](./solidity%20+%20foundry/README.md)
 
-### 📘 [TypeScript](./Typescript/)
+### ![TypeScript Icon](./docs/icons/typescript.png) [TypeScript](./Typescript/)
+
 **General TypeScript Development**
 
 - **Language:** TypeScript
@@ -52,7 +56,30 @@ This repository contains coding rules for five major technology stacks:
 
 [📖 View TypeScript Rules →](./Typescript/README.md)
 
-### ⚛️ [TypeScript-React + Nextjs](./Typescript-React%20+%20Nextjs/)
+### ![Python Icon](./docs/icons/python.png) [Python](./Python/)
+
+**General Python Development**
+
+- **Language:** Python 3.10+
+- **Focus:** Type safety, readability, best practices
+- **Key Guidelines:** Type hints, descriptive naming, error handling, PEP 8 compliance
+- **Use Case:** Foundation for any Python project, can be combined with framework-specific rules
+
+[📖 View Python Rules →](./Python/README.md)
+
+### ![Rust Icon](./docs/icons/rust.png) [Rust](./Rust/)
+
+**Systems Programming with Rust**
+
+- **Language:** Rust (Edition 2021+)
+- **Focus:** Memory safety, performance, zero-cost abstractions
+- **Key Guidelines:** Ownership and borrowing, proper error handling with `Result`, no `unwrap()` in production, comprehensive testing
+- **Use Case:** Systems programming, performance-critical applications, safe concurrent code
+
+[📖 View Rust Rules →](./Rust/README.md)
+
+### ![TypeScript-React + Nextjs Icon](./docs/icons/nextjs.png) [TypeScript-React + Nextjs](./Typescript-React%20+%20Nextjs/)
+
 **Full-Stack Web Development**
 
 - **Framework:** Next.js (Pages Router)
@@ -122,7 +149,19 @@ vibe-coding-rules/
 │   └── no-hiding.mdc
 ├── Typescript/
     ├── README.md
-    └── typescript-code-style-guide.mdc
+    └── .cursor/
+        └── rules/
+            └── typescript-code-style-guide.mdc
+├── Python/
+    ├── README.md
+    └── .cursor/
+        └── rules/
+            └── python-code-style-guide.mdc
+├── Rust/
+    ├── README.md
+    └── .cursor/
+        └── rules/
+            └── rust-code-style-guide.mdc
 └── Typescript-React + Nextjs/
     ├── README.md
     ├── core-framework-&-language.mdc
@@ -148,6 +187,7 @@ vibe-coding-rules/
 **Browse the guidelines interactively:** [View on GitHub Pages](https://[your-username].github.io/vibe-coding-rules/)
 
 A professional web interface is available to browse all coding rules and guidelines. The frontend provides:
+
 - Interactive stack overview with statistics
 - Full guide browser with search capabilities
 - Markdown rendering for easy reading
@@ -181,75 +221,104 @@ See [docs/README.md](./docs/README.md) for setup and development instructions.
 While each technology stack has its own specific guidelines, there are several universal principles that apply across all stacks:
 
 ### ✅ No Hiding (`no-hiding.mdc`)
+
 **Critical Rule:** Never hide compiler warnings, linter errors, type checker warnings, or security issues. All must be resolved.
 
 ### 📝 Logging Guidelines
+
 **⚠️ IMPORTANT:** Only add logs when explicitly requested. By default, do NOT add logs unless asked.
 
 ### 💬 Commenting Guidelines
+
 - Focus on explaining the **"why"** and **"intent"**, not just the **"what"**
 - Use appropriate documentation formats (Doxygen, JSDoc, NatSpec, Google-style docstrings)
 - Document public APIs, complex logic, and non-obvious decisions
 
 ### 🎯 Code Style
+
 - **NEVER abbreviate variables** - Always use full, descriptive names
 - Consistent naming conventions (camelCase, snake_case, PascalCase as appropriate)
 - Proper indentation and formatting
 - Follow language-specific style guides
 
 ### 🧪 Testing
+
 - Write comprehensive tests
 - Aim for high coverage on critical paths
 - Test edge cases and error conditions
 - Use appropriate testing frameworks for each stack
 
 ### 🔀 Git Workflow
+
 - Use Conventional Commits format
 - Write clear, descriptive commit messages
 - Make atomic commits
 - Never commit secrets or sensitive data
 
 ### 👀 Code Review
+
 - Review for functionality, quality, security, and adherence to guidelines
 - Provide constructive feedback
 - Verify test coverage
 
 ### ⚖️ Conflict Resolution
+
 - When rules conflict, refer to `conflict-resolution.mdc` in each stack
 - Hardware/security constraints typically take precedence
 - Document exceptions when necessary
 
 ## Quick Reference by Stack
 
-### 🔌 Arduino + PlatformIO
+### Arduino + PlatformIO
+
 - ✅ Use static memory allocation whenever possible
 - ✅ **NEVER use String class** - Use char arrays with bounds checking
 - ✅ Keep ISRs minimal - just set flags and return
 - ✅ Document all hardware assumptions and connections
 - ✅ Use PROGMEM for constant strings
 
-### 🐍 Python + FastAPI
+### Python + FastAPI
+
 - ✅ Use type hints for all function signatures
 - ✅ Write Google-style docstrings for public APIs
 - ✅ Use async/await for I/O operations
 - ✅ Validate all inputs with Pydantic
 - ✅ Aim for 100% test coverage on service/repository layers
 
-### ⛓️ Solidity + Foundry
+### Solidity + Foundry
+
 - ✅ Follow checks-effects-interactions pattern
 - ✅ Use custom errors (gas efficient)
 - ✅ Emit events for all important state changes
 - ✅ Write comprehensive Foundry tests
 - ✅ Security-first approach - never compromise security for gas
 
-### 📘 TypeScript
+### TypeScript
+
 - ✅ Never use `any` - use `unknown` and narrow it
 - ✅ Always use descriptive, non-abbreviated variable names
 - ✅ Provide explicit return types for exported functions
 - ✅ Use type guards for runtime type checking
 - ✅ Leverage discriminated unions for complex state
 
-### ⚛️ TypeScript-React + Nextjs
+### Python
+
+- ✅ Use type hints for all function signatures
+- ✅ Write Google-style docstrings for public APIs
+- ✅ Handle errors properly with custom exceptions
+- ✅ Use dataclasses for data containers
+- ✅ Follow PEP 8 formatting guidelines
+
+### Rust
+
+- ✅ Never use `unwrap()` in production code
+- ✅ Always use descriptive, non-abbreviated variable names
+- ✅ Prefer borrowing (`&T`) over owned values (`T`)
+- ✅ Use `Result` and `Option` properly for error handling
+- ✅ Write comprehensive tests with `#[cfg(test)]`
+
+### TypeScript-React + Nextjs
+
 - ✅ Use TypeScript strict mode
 - ✅ Write JSDoc comments for public APIs
 - ✅ Use Zustand for global state management
@@ -282,4 +351,3 @@ When updating or adding rules:
 ## Support
 
 For questions or issues with these coding rules, please refer to the individual stack README files or create an issue in the repository.
-
