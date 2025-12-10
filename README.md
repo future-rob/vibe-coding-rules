@@ -12,6 +12,8 @@ Cursor rules are markdown files (`.mdc` format) that provide context and guideli
 
 This repository contains coding rules for seven major technology stacks:
 
+---
+
 ### ![Arduino + PlatformIO Icon](./docs/icons/arduino.png) [Arduino + PlatformIO](./Arduino%20+%20PlatformIO/)
 
 **Embedded Systems & Microcontroller Development**
@@ -21,7 +23,9 @@ This repository contains coding rules for seven major technology stacks:
 - **Focus:** Hardware abstraction, memory management, interrupt handling, real-time constraints
 - **Key Guidelines:** Static allocation, minimal logging, hardware safety, power management
 
-[![Arduino + PlatformIO Icon](./docs/icons/arduino.png) View Arduino + PlatformIO Rules →](./Arduino%20+%20PlatformIO/README.md)
+→ [View Arduino + PlatformIO Rules](./Arduino%20+%20PlatformIO/README.md)
+
+---
 
 ### ![Python + FastAPI Icon](./docs/icons/fastapi.png) [Python + FastAPI](./Python%20+%20FastAPI/)
 
@@ -32,7 +36,9 @@ This repository contains coding rules for seven major technology stacks:
 - **Focus:** API design, async patterns, database management, security, testing
 - **Key Guidelines:** Type hints, async/await, Pydantic validation, comprehensive testing
 
-[![Python + FastAPI Icon](./docs/icons/fastapi.png) View Python + FastAPI Rules →](./Python%20+%20FastAPI/README.md)
+→ [View Python + FastAPI Rules](./Python%20+%20FastAPI/README.md)
+
+---
 
 ### ![Solidity + Foundry Icon](./docs/icons/solidity.png) [Solidity + Foundry](./solidity%20+%20foundry/)
 
@@ -43,7 +49,9 @@ This repository contains coding rules for seven major technology stacks:
 - **Focus:** Security, gas optimization, testing, upgradeability patterns
 - **Key Guidelines:** Security-first approach, custom errors, comprehensive testing, NatSpec documentation
 
-[![Solidity + Foundry Icon](./docs/icons/solidity.png) View Solidity + Foundry Rules →](./solidity%20+%20foundry/README.md)
+→ [View Solidity + Foundry Rules](./solidity%20+%20foundry/README.md)
+
+---
 
 ### ![TypeScript Icon](./docs/icons/typescript.png) [TypeScript](./Typescript/)
 
@@ -54,7 +62,9 @@ This repository contains coding rules for seven major technology stacks:
 - **Key Guidelines:** Never use `any`, descriptive naming, explicit return types, type guards, discriminated unions
 - **Use Case:** Foundation for any TypeScript project, can be combined with framework-specific rules
 
-[![TypeScript Icon](./docs/icons/typescript.png) View TypeScript Rules →](./Typescript/README.md)
+→ [View TypeScript Rules](./Typescript/README.md)
+
+---
 
 ### ![Python Icon](./docs/icons/python.png) [Python](./Python/)
 
@@ -65,7 +75,9 @@ This repository contains coding rules for seven major technology stacks:
 - **Key Guidelines:** Type hints, descriptive naming, error handling, PEP 8 compliance
 - **Use Case:** Foundation for any Python project, can be combined with framework-specific rules
 
-[![Python Icon](./docs/icons/python.png) View Python Rules →](./Python/README.md)
+→ [View Python Rules](./Python/README.md)
+
+---
 
 ### ![Rust Icon](./docs/icons/rust.png) [Rust](./Rust/)
 
@@ -76,7 +88,9 @@ This repository contains coding rules for seven major technology stacks:
 - **Key Guidelines:** Ownership and borrowing, proper error handling with `Result`, no `unwrap()` in production, comprehensive testing
 - **Use Case:** Systems programming, performance-critical applications, safe concurrent code
 
-[📖 View Rust Rules →](./Rust/README.md)
+→ [View Rust Rules](./Rust/README.md)
+
+---
 
 ### ![TypeScript-React + Nextjs Icon](./docs/icons/nextjs.png) [TypeScript-React + Nextjs](./Typescript-React%20+%20Nextjs/)
 
@@ -88,7 +102,7 @@ This repository contains coding rules for seven major technology stacks:
 - **Focus:** React patterns, state management, accessibility, performance optimization
 - **Key Guidelines:** TypeScript strict mode, Zustand for state, accessibility compliance, service layer testing
 
-[![TypeScript-React + Nextjs Icon](./docs/icons/nextjs.png) View TypeScript-React + Nextjs Rules →](./Typescript-React%20+%20Nextjs/README.md)
+→ [View TypeScript-React + Nextjs Rules](./Typescript-React%20+%20Nextjs/README.md)
 
 ## Repository Structure
 
