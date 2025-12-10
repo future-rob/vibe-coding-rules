@@ -330,3 +330,7 @@ When updating these rules:
 - **No shortcuts** - avoid `unwrap()` and unsafe code unless necessary
 - **Documentation matters** - write clear doc comments for public APIs
 - **Consistency is key** - follow these patterns uniformly across the codebase
+
+
+
+

@@ -21,7 +21,7 @@ This repository contains coding rules for seven major technology stacks:
 - **Focus:** Hardware abstraction, memory management, interrupt handling, real-time constraints
 - **Key Guidelines:** Static allocation, minimal logging, hardware safety, power management
 
-[📖 View Arduino + PlatformIO Rules →](./Arduino%20+%20PlatformIO/README.md)
+[![Arduino + PlatformIO Icon](./docs/icons/arduino.png) View Arduino + PlatformIO Rules →](./Arduino%20+%20PlatformIO/README.md)
 
 ### ![Python + FastAPI Icon](./docs/icons/fastapi.png) [Python + FastAPI](./Python%20+%20FastAPI/)
 
@@ -32,7 +32,7 @@ This repository contains coding rules for seven major technology stacks:
 - **Focus:** API design, async patterns, database management, security, testing
 - **Key Guidelines:** Type hints, async/await, Pydantic validation, comprehensive testing
 
-[📖 View Python + FastAPI Rules →](./Python%20+%20FastAPI/README.md)
+[![Python + FastAPI Icon](./docs/icons/fastapi.png) View Python + FastAPI Rules →](./Python%20+%20FastAPI/README.md)
 
 ### ![Solidity + Foundry Icon](./docs/icons/solidity.png) [Solidity + Foundry](./solidity%20+%20foundry/)
 
@@ -43,7 +43,7 @@ This repository contains coding rules for seven major technology stacks:
 - **Focus:** Security, gas optimization, testing, upgradeability patterns
 - **Key Guidelines:** Security-first approach, custom errors, comprehensive testing, NatSpec documentation
 
-[📖 View Solidity + Foundry Rules →](./solidity%20+%20foundry/README.md)
+[![Solidity + Foundry Icon](./docs/icons/solidity.png) View Solidity + Foundry Rules →](./solidity%20+%20foundry/README.md)
 
 ### ![TypeScript Icon](./docs/icons/typescript.png) [TypeScript](./Typescript/)
 
@@ -54,7 +54,7 @@ This repository contains coding rules for seven major technology stacks:
 - **Key Guidelines:** Never use `any`, descriptive naming, explicit return types, type guards, discriminated unions
 - **Use Case:** Foundation for any TypeScript project, can be combined with framework-specific rules
 
-[📖 View TypeScript Rules →](./Typescript/README.md)
+[![TypeScript Icon](./docs/icons/typescript.png) View TypeScript Rules →](./Typescript/README.md)
 
 ### ![Python Icon](./docs/icons/python.png) [Python](./Python/)
 
@@ -65,7 +65,7 @@ This repository contains coding rules for seven major technology stacks:
 - **Key Guidelines:** Type hints, descriptive naming, error handling, PEP 8 compliance
 - **Use Case:** Foundation for any Python project, can be combined with framework-specific rules
 
-[📖 View Python Rules →](./Python/README.md)
+[![Python Icon](./docs/icons/python.png) View Python Rules →](./Python/README.md)
 
 ### ![Rust Icon](./docs/icons/rust.png) [Rust](./Rust/)
 
@@ -88,7 +88,7 @@ This repository contains coding rules for seven major technology stacks:
 - **Focus:** React patterns, state management, accessibility, performance optimization
 - **Key Guidelines:** TypeScript strict mode, Zustand for state, accessibility compliance, service layer testing
 
-[📖 View TypeScript-React + Nextjs Rules →](./Typescript-React%20+%20Nextjs/README.md)
+[![TypeScript-React + Nextjs Icon](./docs/icons/nextjs.png) View TypeScript-React + Nextjs Rules →](./Typescript-React%20+%20Nextjs/README.md)
 
 ## Repository Structure
 
